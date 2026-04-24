@@ -1,0 +1,1214 @@
+// ==UserScript==
+// @name         Palomar SDR Overlay
+// @namespace    http://w1euj.com
+// @version      1.0.0
+// @description  KiwiSDR-style overlay UI for ka9q-web radio.html
+// @author       W1EUJ
+// @license      GPL-3.0-or-later
+// @match        *://*/radio.html*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+// Copyright (C) 2024-2026 W1EUJ
+//
+// Part of ka9q-web, a web interface for ka9q-radio.
+// Based on ka9q-web by John Melton, G0ORX (N6LYT).
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+(function () {
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════
+// RADIO ADAPTER
+// All interaction with the host page goes through this object.
+// The overlay never touches radio.js internals directly.
+//
+// Reads:  window globals (var-declared in radio.js → on window)
+// Writes: DOM manipulation (set input values, click buttons,
+//         dispatch events) so radio.js handlers do the real work.
+// ═══════════════════════════════════════════════════════════════════
+const radio = {
+    // ── read state ───────────────────────────────────────────────
+    get freqKhz()   { return (window.frequencyHz || 0) / 1000; },
+    get centerKhz() { return (window.centerHz || 0) / 1000; },
+    get spanKhz()   { const s = window.spectrum; return s ? (s.spanHz || 0) / 1000 : 0; },
+    get mode()      { const el = document.getElementById('mode'); return el ? el.value.toLowerCase() : 'usb'; },
+    get power()     { return window.power; },
+    get bins()      { const s = window.spectrum; return s ? s.bin_copy : null; },
+    get specH()     { const s = window.spectrum; return s ? s.spectrumHeight || 0 : 0; },
+    get spectrum()  { return window.spectrum || null; },
+    get filterLow() { return window.filter_low; },
+    get filterHigh(){ return window.filter_high; },
+
+    // ── actions (DOM-first) ──────────────────────────────────────
+    tune(khz) {
+        const el = document.getElementById('freq');
+        if (el) { el.value = khz.toFixed(3); el.dispatchEvent(new Event('change', {bubbles:true})); }
+    },
+    setMode(mode) {
+        const el = document.getElementById('mode');
+        if (el) { el.value = mode; el.dispatchEvent(new Event('change', {bubbles:true})); }
+    },
+    toggleAudio() {
+        const btn = document.getElementById('audio_button');
+        if (btn) btn.click();
+    },
+    get audioRunning() {
+        const btn = document.getElementById('audio_button');
+        return btn ? btn.value === 'STOP' : false;
+    },
+    setVolume(frac) {
+        const el = document.getElementById('volume_control');
+        if (el) { el.value = String(frac); el.dispatchEvent(new Event('input', {bubbles:true})); }
+    },
+    zoomIn() {
+        const btn = document.getElementById('zoomplus');
+        if (btn) btn.click();
+    },
+    zoomOut() {
+        const btn = document.getElementById('zoomminus');
+        if (btn) btn.click();
+    },
+    zoomCenter() {
+        const btn = document.getElementById('zoomcenter');
+        if (btn) btn.click();
+    },
+    sendFilterEdges() {
+        const btn = document.getElementById('edge_button');
+        if (btn) btn.click();
+    },
+    // Pan — no DOM equivalent; uses spectrum object + websocket
+    setCenter(khz) {
+        try { window.spectrum?.setCenterHz?.(khz * 1000); } catch(e) {}
+        try {
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+                ws.send('Z:c:' + khz.toFixed(3));
+        } catch(e) {}
+    },
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// SOURCE CANVAS
+// spectrum.js renders everything into #waterfall:
+//   top spectrumPercent%  → spectrum trace + axes
+//   remainder             → waterfall rows
+//
+// We drawImage() the right slices into our own overlay canvases.
+// Raw FFT data is available from window.spectrum.bin_copy.
+// ═══════════════════════════════════════════════════════════════════
+let _src = null;      // set once #waterfall has real dimensions
+let _srcReady = false;
+
+function findSourceCanvas() {
+    const c = document.getElementById('waterfall');
+    if (c && c.width > 0 && c.height > 0) { _src = c; _srcReady = true; return true; }
+    return false;
+}
+
+// ── Hide original UI ──────────────────────────────────────────────
+// Use opacity:0 so the source canvas still composites and drawImage()
+// can read it. visibility:hidden can prevent GPU-composited readback.
+// Explicit IDs for OUR canvases are exempted so they stay visible.
+const hideCSS = document.createElement('style');
+hideCSS.textContent = `
+  html, body {
+    overflow: hidden !important;
+  }
+  body > *:not(#p-overlay) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  /* Keep source canvas rendered in-place — moving it off-screen stops
+     the browser from painting it, making drawImage() read black pixels.
+     Our overlay sits on top via z-index so #waterfall is never seen. */
+  canvas#waterfall {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  /* Our overlay canvases must stay fully visible */
+  canvas#p-sp, canvas#p-wf, canvas#p-sc {
+    opacity: 1 !important;
+    position: static !important;
+    visibility: visible !important;
+    pointer-events: all !important;
+  }
+`;
+document.head.appendChild(hideCSS);
+
+// ── Overlay HTML ──────────────────────────────────────────────────
+const OV = document.createElement('div');
+OV.id = 'p-overlay';
+OV.innerHTML = `
+<style>
+#p-overlay,#p-overlay *{box-sizing:border-box;margin:0;padding:0}
+#p-overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  z-index:2147483647;display:flex;flex-direction:column;
+  font-family:"DejaVu Sans",Verdana,Geneva,sans-serif;
+  font-size:13px;background:#000;color:#fff;overflow:hidden;
+}
+#p-rf{flex:1;position:relative;min-height:0;display:flex;flex-direction:column}
+#p-sp-wrap{flex:30;min-height:0;background:#000;position:relative;cursor:crosshair}
+#p-sp{display:block;width:100%;height:100%}
+#p-sp-db{
+  position:absolute;top:0;left:2px;bottom:14px;
+  display:flex;flex-direction:column;justify-content:space-between;
+  pointer-events:none;font:8px inherit;color:#3a3a3a;
+}
+#p-tune-wrap{position:relative;flex-shrink:0;cursor:ns-resize}
+#p-dx-bar{height:18px;background:#f5f5f5;border-bottom:1px solid #ccc;position:relative;overflow:hidden}
+#p-tunelbl{position:absolute;top:1px;font-size:10px;font-weight:bold;color:#000;white-space:nowrap;pointer-events:none;z-index:4;transform:translateX(-50%)}
+#p-sc-wrap{height:30px;position:relative;background:linear-gradient(to bottom,#c8c8c8,#e8e8e8,#c8c8c8)}
+#p-sc{display:block;width:100%;height:100%}
+.p-pb-cf{position:absolute;top:0;height:100%;background:rgba(80,200,80,.18);z-index:1}
+.p-pb-cut{position:absolute;top:0;height:100%;width:5px;background:rgba(60,180,60,.5);z-index:2}
+.p-pb-car{position:absolute;top:0;height:100%;width:2px;background:rgba(80,220,80,.9);z-index:3}
+#p-wf-wrap{flex:70;position:relative;min-height:0;background:#1e5f7f;overflow:hidden;cursor:crosshair}
+#p-wf{display:block;width:100%;height:100%;pointer-events:none}
+#p-tip{
+  position:absolute;display:none;pointer-events:none;
+  background:#333;border:1px solid #666;color:#e8c000;
+  font-size:10px;padding:1px 5px;z-index:5;top:4px;
+}
+.p-dxl{position:absolute;width:1px;background:#000;top:0;bottom:0}
+.p-dxt{position:absolute;font-size:10px;padding:1px 3px;border:1px solid #000;
+  border-radius:3px;background:rgba(255,255,220,.85);color:#000;white-space:nowrap;top:1px}
+#p-panel{
+  position:fixed;right:0;top:0;bottom:0;
+  display:flex;flex-direction:row;
+  background:#575757;color:#fff;font-size:85%;
+  border-radius:15px 0 0 15px;overflow:visible;
+  z-index:2147483647;
+}
+#p-panel.collapsed{background:transparent}
+#p-panel.collapsed #p-inner{width:0;padding:0;overflow:hidden}
+#p-vis{
+  position:absolute;left:-28px;top:calc(50% - 24px);
+  width:28px;height:48px;background:#575757;border-radius:5px 0 0 5px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:14px;color:#ccc;user-select:none;
+}
+#p-vis:hover{background:#666;color:#fff}
+#p-inner{
+  width:290px;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;gap:5px;
+  padding:10px 8px 10px 10px;
+  scrollbar-width:thin;scrollbar-color:#777 #575757;
+}
+#p-inner::-webkit-scrollbar{width:5px}
+#p-inner::-webkit-scrollbar-thumb{background:#888}
+#p-fdisp{background:#000;border-radius:4px;padding:5px 8px;display:flex;align-items:baseline;justify-content:center;gap:4px;flex-shrink:0}
+#p-fnum{font:bold 30px/1 Consolas,monospace;color:#e8c000;letter-spacing:.02em;
+  background:transparent;border:none;outline:none;text-align:right;width:100%;cursor:pointer;padding:0}
+#p-fnum:focus{cursor:text;color:#fff}
+#p-fnum:read-only{color:#e8c000}
+#p-funit{font-size:12px;font-weight:bold;line-height:1;color:#a08000;flex-shrink:0}
+.p-hr{border:none;border-top:3px solid #aaa;margin:4px 0}
+.p-s{font-size:80%;font-weight:bold;color:#ccc;margin-bottom:2px}
+.cb{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:#373737;padding:3px 6px;min-height:22px;border-radius:6px;
+  color:#fff;font-weight:bold;cursor:pointer;user-select:none;
+  border:none;outline:none;white-space:nowrap;font-size:inherit;
+}
+.cb:hover{background:#474747}.cb:active{background:#777}
+.cb.sel{background:#4CAF50!important;color:#fff}
+.wb{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:hsl(0,0%,92%);color:#000;
+  padding:3px 6px;min-height:22px;border-radius:6px;font-weight:bold;cursor:pointer;
+  user-select:none;border:none;outline:none;white-space:nowrap;font-size:inherit;
+}
+.wb:hover{background:hsl(0,0%,82%)}
+.wb.sel{background:#4CAF50!important;color:#fff}
+.br{display:flex;gap:3px;flex-wrap:wrap;align-items:center}
+.br .cb,.br .wb{flex:1;text-align:center}
+select.ps{
+  background:#444;border:1px solid #888;color:#fff;
+  font:inherit;padding:3px 4px;cursor:pointer;outline:none;
+  width:100%;border-radius:3px;
+}
+#p-sm{
+  border:4px solid gray;border-width:4px 5px;border-radius:5px;
+  height:20px;position:relative;overflow:hidden;
+  background:linear-gradient(90deg,#115511,#44aa44 38%,#aacc00 62%,#ddaa00 76%,#cc4400 87%,#990000);
+}
+#p-smf{position:absolute;right:0;top:0;bottom:0;background:#575757;transition:width .06s;width:65%}
+.p-sms{display:flex;justify-content:space-between;padding:0 2px;margin-top:1px}
+.p-sms span{font-size:8px;color:#ccc}
+#p-smv{font-size:10px;color:#aaa;text-align:right;margin-top:1px}
+.p-sl{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.p-sll{font-size:85%;color:#ccc;width:50px;flex-shrink:0}
+.p-slv{font-size:9px;color:#aaa;width:28px;text-align:right;flex-shrink:0}
+input[type=range]{-webkit-appearance:none;height:22px;background:transparent;cursor:pointer;flex:1;min-width:0;outline:none}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:#808080;border-radius:1px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #808080;cursor:pointer;margin-top:-7px}
+input[type=range]::-moz-range-track{height:3px;background:#808080;border-radius:1px}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:1px solid #808080}
+.p-col-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 2px;border-top:3px solid #aaa;user-select:none;margin-top:2px}
+.p-col-body{display:none;margin-top:3px}
+#p-dg-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:4px 2px;border-top:3px solid #aaa;user-select:none;margin-top:2px}
+#p-dg-body{display:none;margin-top:3px}
+#p-dg-grid{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;background:#3a3a3a;border-radius:5px;padding:6px 8px;font-size:11px;line-height:1.6}
+#p-stat{flex-shrink:0;padding-top:5px;border-top:1px solid #888;margin-top:4px;font-size:11px;color:#bbb;display:flex;align-items:center;gap:6px}
+#p-stat a{color:#6af;text-decoration:none;font-size:11px}
+#p-stat a:hover{text-decoration:underline}
+#p-clk{color:#aaa;white-space:nowrap}
+#p-badge{display:inline-block;width:8px;height:8px;border-radius:50%;background:#8a4500;flex-shrink:0;cursor:default}
+</style>
+
+<div id="p-rf">
+  <div id="p-sp-wrap"><div id="p-sp-db"></div><canvas id="p-sp"></canvas></div>
+  <div id="p-tune-wrap">
+    <span id="p-tunelbl"></span>
+    <div id="p-dx-bar"></div>
+    <div id="p-sc-wrap">
+      <canvas id="p-sc"></canvas>
+      <div class="p-pb-cut" id="p-pb-lo"></div>
+      <div class="p-pb-cut" id="p-pb-hi"></div>
+      <div class="p-pb-cf"  id="p-pb-cf"></div>
+      <div class="p-pb-car" id="p-pb-car"></div>
+    </div>
+  </div>
+  <div id="p-wf-wrap"><canvas id="p-wf"></canvas><div id="p-tip"></div></div>
+</div>
+
+<div id="p-panel">
+  <div id="p-vis">◀</div>
+  <div id="p-inner">
+    <div id="p-fdisp"><input id="p-fnum" value="—" readonly><span id="p-funit">kHz</span></div>
+
+    <div class="br">
+      <button class="cb" id="p-dn2" style="flex:0;min-width:36px">&lt;&lt;</button>
+      <button class="cb" id="p-dn" style="flex:0;min-width:36px">&lt;</button>
+      <button class="cb" id="p-up" style="flex:0;min-width:36px">&gt;</button>
+      <button class="cb" id="p-up2" style="flex:0;min-width:36px">&gt;&gt;</button>
+      <select class="ps" id="p-step" style="flex:1;min-width:0">
+        <option>1 Hz</option><option>10 Hz</option><option>100 Hz</option>
+        <option>500 Hz</option><option selected>1 kHz</option>
+        <option>5 kHz</option><option>10 kHz</option>
+        <option>100 kHz</option>
+      </select>
+    </div>
+
+    <hr class="p-hr">
+    <div class="p-s">Mode</div>
+    <div class="br" id="p-modes">
+      <button class="wb" data-mode="am">AM</button>
+      <button class="wb" data-mode="sam">SAM</button>
+      <button class="wb" data-mode="lsb">LSB</button>
+      <button class="wb" data-mode="usb">USB</button>
+    </div>
+    <div class="br" style="margin-top:3px">
+      <button class="wb" data-mode="cwu">CWU</button>
+      <button class="wb" data-mode="cwl">CWL</button>
+      <button class="wb" data-mode="fm">FM</button>
+      <button class="wb" data-mode="iq">IQ</button>
+    </div>
+
+    <hr class="p-hr">
+    <div class="p-s">Zoom / Pan</div>
+    <div class="br">
+      <button class="cb" id="p-zo">Z −</button>
+      <button class="cb" id="p-zi">Z +</button>
+      <button class="cb" id="p-pl">◀</button>
+      <button class="cb" id="p-pr">▶</button>
+      <button class="cb" id="p-ctr">Ctr</button>
+    </div>
+
+    <hr class="p-hr">
+    <div class="p-s">Signal</div>
+    <div id="p-sm"><div id="p-smf"></div></div>
+    <div class="p-sms"><span>1</span><span>3</span><span>5</span><span>7</span><span>9</span><span>+20</span><span>+40</span></div>
+    <div id="p-smv">S— · — dBm</div>
+
+    <hr class="p-hr">
+    <div class="p-s">Audio</div>
+    <div class="br">
+      <button class="wb sel" id="p-aud">▶ Audio</button>
+      <button class="cb" style="color:#ff8080">⏺ Rec</button>
+    </div>
+    <div class="p-sl" style="margin-top:3px">
+      <span class="p-sll">Volume</span>
+      <input type="range" id="p-vol" min="0" max="100" value="70">
+      <span class="p-slv" id="p-volv">70</span>
+    </div>
+
+    <div class="p-col-hdr" id="p-sp-hdr">
+      <span style="font-size:80%;font-weight:bold;color:#ccc" id="p-sp-title">▸ SPECTRUM</span>
+      <span style="font-size:10px;color:#999" id="p-sp-arr">show</span>
+    </div>
+    <div class="p-col-body" id="p-sp-body">
+      <div class="p-sl"><span class="p-sll">WF max</span><input type="range" id="p-wfmax" min="-160" max="0" value="-30"><span class="p-slv" id="p-wfmaxv">-30</span></div>
+      <div class="p-sl"><span class="p-sll">WF min</span><input type="range" id="p-wfmin" min="-160" max="0" value="-120"><span class="p-slv" id="p-wfminv">-120</span></div>
+      <div class="p-sl"><span class="p-sll">Sp max</span><input type="range" id="p-spmax" min="-160" max="0" value="-30"><span class="p-slv" id="p-spmaxv">-30</span></div>
+      <div class="p-sl"><span class="p-sll">Sp min</span><input type="range" id="p-spmin" min="-160" max="0" value="-130"><span class="p-slv" id="p-spminv">-130</span></div>
+      <div class="p-sl"><span class="p-sll">Sp/WF</span><input type="range" id="p-spratio" min="10" max="70" value="30"><span class="p-slv" id="p-spratiov">30%</span></div>
+      <div class="br" style="margin-top:3px">
+        <button class="cb" id="p-sp-col">Color</button>
+        <button class="cb" id="p-sp-auto">Auto</button>
+        <button class="wb sel" id="p-run">▶ Run</button>
+      </div>
+    </div>
+
+    <div id="p-dg-hdr">
+      <span style="font-size:80%;font-weight:bold;color:#ccc" id="p-dg-title">▸ RADIO STATUS</span>
+      <span style="font-size:10px;color:#999" id="p-dg-arr">show</span>
+    </div>
+    <div id="p-dg-body">
+      <div id="p-dg-grid"></div>
+    </div>
+
+    <hr class="p-hr">
+    <div class="p-s">Options</div>
+    <div class="br"><button class="cb">DX labels</button><button class="cb">Memories</button></div>
+    <div class="br" style="margin-top:3px"><button class="cb">Ext ▼</button><button class="cb">Help</button></div>
+
+    <div style="flex:1;min-height:8px"></div>
+
+    <div id="p-stat">
+      <span style="color:#ccc">Palomar Mountain SDR</span>
+      <a href="mailto:palomar@w1euj.com">Contact</a>
+      <a href="https://www.google.com/maps/place/Palomar+Mountain,+CA/@33.3098418,-116.8497445,55m/data=!3m1!1e3!4m6!3m5!1s0x80db96d807967335:0xa072a1bb648f0269!8m2!3d33.3211759!4d-116.879633!16s%2Fg%2F11fk4qzsdg?entry=ttu" target="_blank" rel="noopener">Map</a>
+      <span style="flex:1"></span>
+      <span id="p-clk">00:00:00 UTC</span>
+      <span id="p-badge" title="Connecting…"></span>
+    </div>
+  </div>
+</div>
+`;
+document.body.appendChild(OV);
+
+// ── Canvas setup ──────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const wfC = $('p-wf'),  wfCtx = wfC.getContext('2d');
+const spC = $('p-sp'),  spCtx = spC.getContext('2d');
+const scC = $('p-sc'),  scCtx = scC.getContext('2d');
+
+// ── State ─────────────────────────────────────────────────────────
+let tuneKhz = 14225, centerKhz = 15000, spanKhz = 20000;
+let sc = -30, sf = -130;
+let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, smT = 0.35;
+let maxH = null;
+const ZOOMS = [30000,20000,15000,10000,5000,2000,1000,500,200,100];
+const PB = {usb:[0,2.8],lsb:[-2.8,0],am:[-4,4],sam:[-4,4],cwu:[0,.5],cwl:[-.5,0],fm:[-6,6],iq:[-5,5]};
+
+// ── Presets ───────────────────────────────────────────────────────
+// Edit the values below to change the default startup behaviour.
+// Any key set to null or undefined is skipped (uses the page default).
+const PRESETS = {
+    autoStartAudio: true,    // click "▶ Audio" automatically on load
+    // volume:      70,      // 0–100
+    // mode:        'usb',   // am, sam, lsb, usb, cwu, cwl, fm, iq
+    // frequency:   14225,   // kHz
+    // wfMax:       -30,     // waterfall max dB
+    // wfMin:       -120,    // waterfall min dB
+    // spMax:       -30,     // spectrum max dB
+    // spMin:       -130,    // spectrum min dB
+};
+
+// ── Sync from radio.js ────────────────────────────────────────────
+function syncFromRadio() {
+    if (radio.freqKhz > 0) {
+        tuneKhz   = radio.freqKhz;
+        centerKhz = radio.centerKhz;
+        spanKhz   = radio.spanKhz;
+        curMode   = radio.mode;
+        document.querySelectorAll('#p-inner [data-mode]').forEach(b=>b.classList.remove('sel'));
+        const sel = document.querySelector('#p-inner [data-mode="'+curMode+'"]');
+        if (sel) sel.classList.add('sel');
+        updateFDisp();
+        $('p-badge').title = 'Live — connected';
+        $('p-badge').style.background = '#44cc44';
+    } else {
+        setTimeout(syncFromRadio, 500);
+    }
+}
+syncFromRadio();
+
+// ── Resize ────────────────────────────────────────────────────────
+function resize() {
+    [spC, wfC, scC].forEach(c => {
+        const W = c.parentElement.clientWidth, H = c.parentElement.clientHeight;
+        if (c.width !== W || c.height !== H) {
+            c.width = W; c.height = H;
+            if (c === spC) maxH = null;
+        }
+    });
+    buildDX(); drawScale(); buildDbLabels(); updatePB();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER
+//
+// spectrum.js draws into _src (#waterfall):
+//   top spectrumHeight px → spectrum trace + axes
+//   remaining px          → waterfall rows
+//
+// We must wait until:
+//   1. _src exists and has real dimensions
+//   2. window.spectrum is constructed
+//   3. window.spectrum.spectrumHeight > 0  (set by updateSpectrumRatio,
+//      which fires once the canvas has clientWidth/clientHeight — i.e.
+//      after init() finishes inside the optionsDialog fetch callback)
+// ══════════════════════════════════════════════════════════════════
+function renderFromSource() {
+    if (!_srcReady) return;
+
+    const specH = radio.specH;
+    if (specH <= 0) return;
+
+    const srcW    = _src.width;
+    const srcH    = _src.height;
+    const wfSrcH  = srcH - specH;
+
+    if (srcW <= 0 || srcH <= 0) return;
+
+    // ── Waterfall: copy the bottom portion of the source canvas ──
+    if (wfC.width > 0 && wfC.height > 0 && wfSrcH > 0) {
+        wfCtx.drawImage(_src,
+            0, specH, srcW, wfSrcH,
+            0, 0,     wfC.width, wfC.height
+        );
+        drawTuneLine(wfCtx, wfC.width, wfC.height);
+    }
+
+    // ── Spectrum: prefer bin_copy for our custom trace style ──────
+    if (spC.width > 0 && spC.height > 0) {
+        const bins = radio.bins;
+        drawSpec((bins && bins.length > 0) ? bins : null);
+    }
+}
+
+// ── Spectrum trace ────────────────────────────────────────────────
+function drawSpec(bins) {
+    const W = spC.width, H = spC.height;
+    const dR = sc - sf;
+    spCtx.fillStyle = '#000'; spCtx.fillRect(0, 0, W, H);
+
+    // Horizontal dB grid lines
+    spCtx.strokeStyle = 'rgba(255,255,255,.04)'; spCtx.lineWidth = 1;
+    for (let db = Math.ceil(sf/10)*10; db <= sc; db += 10) {
+        const y = H - ((db-sf)/dR)*H;
+        spCtx.beginPath(); spCtx.moveTo(0,y); spCtx.lineTo(W,y); spCtx.stroke();
+    }
+
+    drawPassband(spCtx, W, H);
+
+    if (!bins) { drawTuneLine(spCtx, W, H); return; }
+
+    const n = bins.length;
+    if (!maxH || maxH.length !== W) maxH = new Float32Array(W).fill(sf);
+
+    // Map bins → pixel columns
+    const pts = new Float32Array(W);
+    for (let x = 0; x < W; x++) {
+        const b = Math.min(n-1, Math.floor((x/W)*n));
+        pts[x] = bins[b];
+    }
+
+    // Decay max-hold
+    for (let x = 0; x < W; x++) {
+        if (pts[x] > maxH[x]) maxH[x] = pts[x];
+        else maxH[x] = maxH[x]*.997 + pts[x]*.003;
+    }
+
+    // Max-hold trace (dim orange-red)
+    spCtx.beginPath(); spCtx.strokeStyle = 'rgba(180,80,50,.4)'; spCtx.lineWidth = 1;
+    for (let x = 0; x < W; x++) {
+        const y = H - Math.max(0, Math.min(H, ((maxH[x]-sf)/dR)*H));
+        x === 0 ? spCtx.moveTo(x,y) : spCtx.lineTo(x,y);
+    } spCtx.stroke();
+
+    // Filled area + live trace
+    spCtx.beginPath(); spCtx.moveTo(0, H);
+    for (let x = 0; x < W; x++) spCtx.lineTo(x, H - Math.max(0, Math.min(H, ((pts[x]-sf)/dR)*H)));
+    spCtx.lineTo(W, H); spCtx.closePath();
+    const g = spCtx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'rgba(70,170,70,.72)'); g.addColorStop(.5,'rgba(35,95,35,.25)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    spCtx.fillStyle = g; spCtx.fill();
+    spCtx.beginPath(); spCtx.strokeStyle = '#55bb55'; spCtx.lineWidth = 1.2;
+    for (let x = 0; x < W; x++) {
+        const y = H - Math.max(0, Math.min(H, ((pts[x]-sf)/dR)*H));
+        x === 0 ? spCtx.moveTo(x,y) : spCtx.lineTo(x,y);
+    } spCtx.stroke();
+
+    drawTuneLine(spCtx, W, H);
+}
+
+function drawPassband(ctx, W, H) {
+    const pb = PB[curMode] || [0, 2.8];
+    const lo = centerKhz - spanKhz / 2;
+    const x0 = Math.round(((tuneKhz + pb[0] - lo) / spanKhz) * W);
+    const x1 = Math.round(((tuneKhz + pb[1] - lo) / spanKhz) * W);
+    const w  = x1 - x0;
+    if (w > 0) {
+        ctx.fillStyle = 'rgba(80,200,80,.15)';
+        ctx.fillRect(x0, 0, w, H);
+        // passband edges
+        ctx.strokeStyle = 'rgba(60,180,60,.5)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, H); ctx.stroke();
+    }
+}
+
+function drawTuneLine(ctx, W, H) {
+    const x = Math.round(((tuneKhz - (centerKhz - spanKhz/2)) / spanKhz) * W);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,0,0,.7)'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+}
+
+// ── Frequency scale ───────────────────────────────────────────────
+function drawScale() {
+    const W = scC.width, H = scC.height; if (!W) return;
+    const g = scCtx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#c8c8c8'); g.addColorStop(.5,'#e8e8e8'); g.addColorStop(1,'#c8c8c8');
+    scCtx.fillStyle = g; scCtx.fillRect(0,0,W,H);
+    const lo = (centerKhz-spanKhz/2)/1000, hi = (centerKhz+spanKhz/2)/1000, range = hi-lo;
+    const steps = [.001,.002,.005,.01,.02,.05,.1,.2,.5,1,2,5,10,15,20];
+    let step = 1; for (const s of steps) { if (range/s <= 14) { step=s; break; } }
+    scCtx.font = '9px "DejaVu Sans",Verdana,Geneva,sans-serif'; scCtx.textAlign = 'center';
+    for (let f = Math.ceil(lo/step)*step; f <= hi+step*.001; f += step) {
+        const x = ((f-lo)/range)*W;
+        scCtx.strokeStyle = 'rgba(0,0,0,.15)'; scCtx.lineWidth = 1;
+        scCtx.beginPath(); scCtx.moveTo(x,0); scCtx.lineTo(x,H); scCtx.stroke();
+        scCtx.fillStyle = '#444';
+        scCtx.fillText(step<1?(f*1000).toFixed(0):f.toFixed(step<.1?2:step<1?1:0), x, H-2);
+    }
+    updateTuneLabel();
+}
+function updateTuneLabel() {
+    const W = $('p-dx-bar').clientWidth; if (!W) return;
+    const lo = centerKhz-spanKhz/2, x = ((tuneKhz-lo)/spanKhz)*W;
+    const lbl = $('p-tunelbl');
+    lbl.textContent = (tuneKhz/1000).toFixed(3)+' MHz';
+    lbl.style.left = x+'px';
+}
+
+function updatePB() {
+    const W = scC.width; if (!W) return;
+    const pb = getActivePassbandKhz();
+    const lo = centerKhz-spanKhz/2, H = $('p-sc-wrap').clientHeight;
+    const car = Math.round(((tuneKhz-lo)/spanKhz)*W);
+    const x0  = Math.round(((tuneKhz+pb[0]-lo)/spanKhz)*W);
+    const x1  = Math.round(((tuneKhz+pb[1]-lo)/spanKhz)*W);
+    $('p-pb-lo').style.cssText = `left:${x0-2}px;height:${H}px`;
+    $('p-pb-hi').style.cssText = `left:${x1-2}px;height:${H}px`;
+    $('p-pb-cf').style.cssText = `left:${x0}px;width:${Math.max(0,x1-x0)}px;height:${H}px`;
+    $('p-pb-car').style.cssText = `left:${car-1}px;height:${H}px`;
+}
+
+// Prefer live backend-confirmed passband edges from radio.js globals.
+// Fallback to static mode defaults if globals are not available yet.
+function getActivePassbandKhz() {
+    const fLo = radio.filterLow, fHi = radio.filterHigh;
+    if (Number.isFinite(fLo) && Number.isFinite(fHi)) {
+        return [Math.min(fLo, fHi) / 1000, Math.max(fLo, fHi) / 1000];
+    }
+    return PB[curMode] || [0, 2.8];
+}
+
+// Kiwi-style low-risk first step: draggable low/high cut handles on the passband scale.
+// This only adjusts low/high edge inputs and calls existing sendFilterEdges() in radio.js.
+(function setupPassbandHandleDrag(){
+    const scWrap = $('p-sc-wrap');
+    const loHandle = $('p-pb-lo');
+    const hiHandle = $('p-pb-hi');
+    if (!scWrap || !loHandle || !hiHandle) return;
+
+    const EDGE_MIN_HZ = 50;
+    let dragTarget = null; // 'low' | 'high'
+
+    function hzPerPixel(rect) {
+        if (!rect || !rect.width || !spanKhz) return 0;
+        return (spanKhz * 1000) / rect.width;
+    }
+
+    function clampEdges(lowHz, highHz, target) {
+        if (!Number.isFinite(lowHz) || !Number.isFinite(highHz)) return [lowHz, highHz];
+        // Keep a minimum passband width; preserve the dragged edge as primary.
+        if ((highHz - lowHz) < EDGE_MIN_HZ) {
+            if (target === 'low') lowHz = highHz - EDGE_MIN_HZ;
+            else highHz = lowHz + EDGE_MIN_HZ;
+        }
+        return [lowHz, highHz];
+    }
+
+    function applyDraggedEdge(clientX, target) {
+        const rect = scWrap.getBoundingClientRect();
+        const hpp = hzPerPixel(rect);
+        if (!hpp) return;
+
+        const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const loCanvasHz = (centerKhz - spanKhz / 2) * 1000;
+        const absHz = loCanvasHz + x * hpp;
+        const relHz = Math.round(absHz - tuneKhz * 1000);
+
+        const lowEl = document.getElementById('filterLowInput');
+        const highEl = document.getElementById('filterHighInput');
+        if (!lowEl || !highEl) return;
+
+        let low = parseFloat(lowEl.value);
+        let high = parseFloat(highEl.value);
+        if (!Number.isFinite(low) || !Number.isFinite(high)) {
+            const pb = getActivePassbandKhz();
+            low = pb[0] * 1000;
+            high = pb[1] * 1000;
+        }
+
+        if (target === 'low') low = relHz;
+        if (target === 'high') high = relHz;
+        [low, high] = clampEdges(low, high, target);
+
+        lowEl.value = Math.round(low);
+        highEl.value = Math.round(high);
+        radio.sendFilterEdges();
+    }
+
+    function startDrag(e, target) {
+        dragTarget = target;
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    loHandle.addEventListener('pointerdown', e => startDrag(e, 'low'));
+    hiHandle.addEventListener('pointerdown', e => startDrag(e, 'high'));
+    window.addEventListener('pointermove', e => {
+        if (!dragTarget) return;
+        applyDraggedEdge(e.clientX, dragTarget);
+    });
+    window.addEventListener('pointerup', () => { dragTarget = null; });
+    window.addEventListener('pointercancel', () => { dragTarget = null; });
+})();
+
+function buildDbLabels() {
+    const H = spC.height; if (!H) return;
+    const el = $('p-sp-db'), dR = sc-sf; el.innerHTML = '';
+    for (let db = Math.ceil(sf/20)*20; db <= sc; db += 20) {
+        const s = document.createElement('span');
+        s.textContent = db;
+        s.style.cssText = `position:absolute;top:${Math.round(H-((db-sf)/dR)*H-6)}px`;
+        el.appendChild(s);
+    }
+}
+
+const DX=[
+    {f:5000,l:'WWV'},{f:10000,l:'WWV'},{f:15000,l:'WWV'},
+    {f:7074,l:'FT8'},{f:14074,l:'FT8'},{f:21074,l:'FT8'},
+    {f:14100,l:'WSPR'},{f:14225,l:'SSB'},{f:9975,l:'CHU'},
+    {f:7200,l:'AM'},{f:9500,l:'SW'},
+];
+function buildDX() {
+    const bar = $('p-dx-bar'); bar.innerHTML = '';
+    const W = bar.clientWidth, lo = centerKhz-spanKhz/2;
+    for (const {f,l} of DX) {
+        const x = ((f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
+        const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
+        const lb = document.createElement('div'); lb.className='p-dxt'; lb.style.left=(x+2)+'px'; lb.textContent=l; bar.appendChild(lb);
+    }
+}
+
+// ── S-meter ───────────────────────────────────────────────────────
+// Read baseband power directly from radio.js if available, otherwise simulate
+function tickSM() {
+    const pwr = radio.power != null ? radio.power : null;
+    if (pwr !== null && isFinite(pwr)) {
+        // power is already in dBm (radio.js: power = 10*log10(power))
+        const dBm = pwr;
+        // Map roughly -120 dBm → 0, -40 dBm → 1
+        smT = Math.max(0, Math.min(1, (dBm + 120) / 80));
+    } else {
+        smT += (Math.random()-.5)*.05;
+        smT = Math.max(.02, Math.min(.97, smT));
+    }
+    $('p-smf').style.width = ((1-smT)*100)+'%';
+    const sv = Math.max(1, Math.min(9, Math.ceil(smT*9)));
+    $('p-smv').textContent = `S${sv}  ${Math.round(-120+smT*80)} dBm`;
+}
+
+// ── Clock ─────────────────────────────────────────────────────────
+function updateClock() {
+    const n = new Date(), p = v => String(v).padStart(2,'0');
+    const s = `${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())} UTC`;
+    $('p-clk').textContent = s;
+}
+
+function updateFDisp() {
+    if(document.activeElement !== $('p-fnum')) $('p-fnum').value = tuneKhz.toFixed(3);
+    drawScale(); updatePB();
+}
+
+// ── Apply presets ─────────────────────────────────────────────────
+// Called once after the radio is fully ready.  Reads from the PRESETS
+// object and drives the same functions the UI buttons use.
+let _presetsApplied = false;
+function applyPresets() {
+    if (_presetsApplied) return;
+    _presetsApplied = true;
+    console.log('[Palomar] applying presets', PRESETS);
+
+    if (PRESETS.volume != null) {
+        $('p-vol').value = PRESETS.volume;
+        $('p-volv').textContent = PRESETS.volume;
+        radio.setVolume(PRESETS.volume / 100);
+    }
+    if (PRESETS.mode) {
+        rjsMode(PRESETS.mode);
+        document.querySelectorAll('#p-inner [data-mode]').forEach(b => b.classList.remove('sel'));
+        const sel = document.querySelector('#p-inner [data-mode="' + PRESETS.mode + '"]');
+        if (sel) sel.classList.add('sel');
+    }
+    if (PRESETS.frequency != null) rjsTune(PRESETS.frequency);
+    const sp = radio.spectrum;
+    if (PRESETS.wfMax != null) { $('p-wfmax').value = PRESETS.wfMax; $('p-wfmaxv').textContent = PRESETS.wfMax; if (sp) sp.wf_max_db = PRESETS.wfMax; }
+    if (PRESETS.wfMin != null) { $('p-wfmin').value = PRESETS.wfMin; $('p-wfminv').textContent = PRESETS.wfMin; if (sp) sp.wf_min_db = PRESETS.wfMin; }
+    if (PRESETS.spMax != null) { sc = PRESETS.spMax; $('p-spmax').value = sc; $('p-spmaxv').textContent = sc; if (sp) sp.max_db = sc; buildDbLabels(); }
+    if (PRESETS.spMin != null) { sf = PRESETS.spMin; $('p-spmin').value = sf; $('p-spminv').textContent = sf; if (sp) sp.min_db = sf; buildDbLabels(); }
+
+    if (PRESETS.autoStartAudio) {
+        setTimeout(() => {
+            radio.toggleAudio();
+            $('p-aud').classList.add('sel');
+        }, 600);
+    }
+}
+
+// ── Main loop ─────────────────────────────────────────────────────
+// Poll until the source canvas and spectrum object are ready before
+// starting rAF. This handles the async optionsDialog.html fetch in radio.js.
+let loopStarted = false;
+let frame = 0;
+
+function waitForReady() {
+    // Step 1: find the source canvas once it has real dimensions
+    if (!_srcReady) {
+        findSourceCanvas();
+        setTimeout(waitForReady, 100);
+        return;
+    }
+    // Step 2: wait for spectrum to be constructed and fully sized
+    if (radio.specH <= 0) {
+        setTimeout(waitForReady, 100);
+        return;
+    }
+    // Ready — start the render loop
+    if (!loopStarted) {
+        loopStarted = true;
+        const sp = radio.spectrum;
+        console.log('[Palomar] source canvas ready, spectrumHeight =', radio.specH, '— starting loop');
+        if (sp && typeof sp.wf_max_db==='number'){ $('p-wfmax').value=sp.wf_max_db; $('p-wfmaxv').textContent=sp.wf_max_db; }
+        if (sp && typeof sp.wf_min_db==='number'){ $('p-wfmin').value=sp.wf_min_db; $('p-wfminv').textContent=sp.wf_min_db; }
+        if (sp && typeof sp.max_db==='number'){ sc=sp.max_db; $('p-spmax').value=sc; $('p-spmaxv').textContent=sc; }
+        if (sp && typeof sp.min_db==='number'){ sf=sp.min_db; $('p-spmin').value=sf; $('p-spminv').textContent=sf; }
+        // Sync volume slider from page
+        const volEl = document.getElementById('volume_control');
+        if (volEl) { const v = Math.round(parseFloat(volEl.value)*100); $('p-vol').value=v; $('p-volv').textContent=v; }
+        buildDbLabels();
+        resize();
+        applyPresets();
+        requestAnimationFrame(loop);
+    }
+}
+
+function loop() {
+    if (!paused) {
+        resize();
+        if (!_panSuppressSync) {
+            const rKhz = radio.freqKhz;
+            const cKhz = radio.centerKhz;
+            const sKhz = radio.spanKhz;
+            if (rKhz > 0 && (Math.abs(rKhz-tuneKhz)>.5 || Math.abs(cKhz-centerKhz)>.5 || Math.abs(sKhz-spanKhz)>.5)) {
+                tuneKhz = rKhz; centerKhz = cKhz; spanKhz = sKhz;
+                updateFDisp(); buildDX();
+            }
+        }
+        renderFromSource();
+    }
+    frame++;
+    if (frame%8===0)  tickSM();
+    if (frame%60===0) updateClock();
+    requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════════════════════════
+function rjsTune(khz) {
+    tuneKhz = khz;
+    radio.tune(khz);
+    updateFDisp();
+}
+function rjsMode(mode) {
+    curMode = mode;
+    radio.setMode(mode);
+    drawScale(); updatePB();
+}
+function getStep() {
+    const s = $('p-step').value;
+    if (s.includes('MHz')) return parseFloat(s)*1000;
+    if (/khz/i.test(s)) return parseFloat(s);
+    return parseFloat(s)/1000;
+}
+const _stepKhz = [.001,.01,.1,.5,1,5,10,100,1000];
+function getBigStep() {
+    const cur = getStep();
+    for (let i = 0; i < _stepKhz.length; i++) {
+        if (Math.abs(_stepKhz[i] - cur) < 1e-9) {
+            return (i < _stepKhz.length - 1) ? _stepKhz[i+1] : _stepKhz[i];
+        }
+    }
+    return cur;
+}
+
+$('p-fnum').addEventListener('focus', ()=>{ $('p-fnum').removeAttribute('readonly'); $('p-fnum').select(); });
+$('p-fnum').addEventListener('blur', ()=>{ $('p-fnum').setAttribute('readonly',''); $('p-fnum').value = tuneKhz.toFixed(3); });
+$('p-fnum').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.preventDefault(); const v=parseFloat($('p-fnum').value); if(!isNaN(v)){ rjsTune(v); $('p-fnum').blur(); } }
+  if(e.key==='Escape'){ $('p-fnum').blur(); }
+});
+// Step and snap: round to the nearest step-grid boundary in the
+// direction of travel.  E.g. 10000.517 + 1 kHz → 10001.000,
+//                            10000.517 − 1 kHz → 10000.000.
+// If already exactly on a grid line, move one full step.
+function stepSnap(freq, step, dir) {          // dir: +1 or -1
+    // Use a small epsilon to avoid floating-point false-positives
+    const eps = step * 1e-9;
+    if (dir > 0) {
+        const next = Math.ceil(freq / step + eps) * step;
+        // If ceil didn't actually move us, add one step
+        return (next - freq < eps) ? next + step : next;
+    } else {
+        const prev = Math.floor(freq / step - eps) * step;
+        return (freq - prev < eps) ? prev - step : prev;
+    }
+}
+$('p-dn').onclick  = ()=>rjsTune(Math.max(1, stepSnap(tuneKhz, getStep(),    -1)));
+$('p-up').onclick  = ()=>rjsTune(stepSnap(tuneKhz, getStep(),    +1));
+$('p-dn2').onclick = ()=>rjsTune(Math.max(1, stepSnap(tuneKhz, getBigStep(), -1)));
+$('p-up2').onclick = ()=>rjsTune(stepSnap(tuneKhz, getBigStep(), +1));
+
+document.querySelectorAll('#p-inner [data-mode]').forEach(btn=>{
+    btn.onclick = ()=>{
+        document.querySelectorAll('#p-inner [data-mode]').forEach(b=>b.classList.remove('sel'));
+        btn.classList.add('sel'); rjsMode(btn.dataset.mode);
+    };
+});
+
+
+$('p-zo').onclick  = ()=> radio.zoomOut();
+$('p-zi').onclick  = ()=> radio.zoomIn();
+$('p-pl').onclick  = ()=>{ centerKhz-=spanKhz*.2; sendCenter(centerKhz); buildDX(); drawScale(); updatePB(); };
+$('p-pr').onclick  = ()=>{ centerKhz+=spanKhz*.2; sendCenter(centerKhz); buildDX(); drawScale(); updatePB(); };
+$('p-ctr').onclick = ()=> radio.zoomCenter();
+
+$('p-aud').onclick = function(){
+    this.classList.toggle('sel');
+    radio.toggleAudio();
+};
+$('p-vol').oninput = function(){
+    $('p-volv').textContent = this.value;
+    radio.setVolume(+this.value / 100);
+};
+$('p-wfmax').oninput = function(){ const v=+this.value; $('p-wfmaxv').textContent=v; const s=radio.spectrum; if(s) s.wf_max_db=v; };
+$('p-wfmin').oninput = function(){ const v=+this.value; $('p-wfminv').textContent=v; const s=radio.spectrum; if(s) s.wf_min_db=v; };
+$('p-spmax').oninput = function(){ sc=+this.value; $('p-spmaxv').textContent=sc; const s=radio.spectrum; if(s) s.max_db=sc; buildDbLabels(); };
+$('p-spmin').oninput = function(){ sf=+this.value; $('p-spminv').textContent=sf; const s=radio.spectrum; if(s) s.min_db=sf; buildDbLabels(); };
+$('p-spratio').oninput = function(){
+    const v=+this.value; $('p-spratiov').textContent=v+'%';
+    $('p-sp-wrap').style.flex=v; $('p-wf-wrap').style.flex=100-v;
+    const s=radio.spectrum; if(s && s.setSpectrumPercent) s.setSpectrumPercent(v);
+    resize();
+};
+// ── Split-handle drag (resize spectrum / waterfall) ─────────────
+// ── Split drag on tune-wrap (resize spectrum / waterfall) ────────
+// The tune-wrap bar (DX labels + frequency scale, ~48px tall) acts
+// as the drag handle — much easier to grab than a thin separator.
+(function(){
+    const tuneWrap = $('p-tune-wrap');
+    const spWrap   = $('p-sp-wrap');
+    const wfWrap   = $('p-wf-wrap');
+    const rfWrap   = $('p-rf');
+    const slider   = $('p-spratio');
+    let dragging = false, startY, startSpH;
+
+    function onStart(e) {
+        // Don't steal drags that are intended for passband controls.
+        const t = e.target;
+        if (t && t.closest && t.closest('#p-pb-lo, #p-pb-hi, #p-pb-cf, #p-pb-car')) {
+            return;
+        }
+        dragging = true;
+        startY   = (e.touches ? e.touches[0] : e).clientY;
+        startSpH = spWrap.getBoundingClientRect().height;
+        e.preventDefault();
+    }
+    function onMove(e) {
+        if (!dragging) return;
+        const y     = (e.touches ? e.touches[0] : e).clientY;
+        const dy    = y - startY;
+        const total = rfWrap.clientHeight - tuneWrap.offsetHeight;
+        if (total <= 0) return;
+        const pct = Math.round(Math.max(10, Math.min(70, (startSpH + dy) / total * 100)));
+        spWrap.style.flex = pct;
+        wfWrap.style.flex = 100 - pct;
+        if (slider) { slider.value = pct; $('p-spratiov').textContent = pct + '%'; }
+        const s=radio.spectrum; if(s && s.setSpectrumPercent) s.setSpectrumPercent(pct);
+        resize();
+        e.preventDefault();
+    }
+    function onEnd() {
+        if (!dragging) return;
+        dragging = false;
+    }
+    tuneWrap.addEventListener('mousedown',  onStart);
+    tuneWrap.addEventListener('touchstart', onStart, {passive:false});
+    window.addEventListener('mousemove',  onMove);
+    window.addEventListener('touchmove',  onMove, {passive:false});
+    window.addEventListener('mouseup',    onEnd);
+    window.addEventListener('touchend',   onEnd);
+})();
+$('p-run').onclick  = function(){
+    paused=!paused; this.textContent=paused?'⏸ Paused':'▶ Run';
+    if(paused) this.classList.remove('sel'); else this.classList.add('sel');
+};
+// ── Colormap cycle ───────────────────────────────────────────────
+// colormaps[] is defined in colormap.js: turbo, fosphor, viridis,
+// inferno, magma, jet, binary, blue, short, kiwi (index 0–9).
+// We use setColormap() instead of toggleColor() because toggleColor()
+// tries to update a "colormap" <select> element that doesn't exist
+// in this panel.
+const CM_NAMES = ['turbo','fosphor','viridis','inferno','magma','jet','binary','blue','short','kiwi'];
+$('p-sp-col').onclick = function(){
+    const sp = radio.spectrum;
+    if (!sp || typeof sp.setColormap !== 'function') return;
+    const next = ((sp.colorindex || 0) + 1) % CM_NAMES.length;
+    sp.setColormap(next);
+    this.textContent = CM_NAMES[next];
+    // Reset label back to "Color" after 1.5 s
+    clearTimeout(this._t);
+    this._t = setTimeout(()=>{ this.textContent = 'Color'; }, 1500);
+};
+
+// ── Autoscale ────────────────────────────────────────────────────
+// spectrum.js has its own forceAutoscale() but it runs asynchronously
+// across several addData() frames and updates its own DOM elements
+// (spectrum_min, waterfall_max, etc.) which don't exist in this panel.
+// Instead we read bin_copy directly and set the range in one shot.
+
+// Update all four panel sliders (Sp max/min, WF max/min), the local
+// sc/sf variables, and spectrum.js's internal dB range in one call.
+function setSlidersAndRange(newMax, newMin){
+    sc = newMax; sf = newMin;
+    $('p-spmax').value = sc; $('p-spmaxv').textContent = sc;
+    $('p-spmin').value = sf; $('p-spminv').textContent = sf;
+    $('p-wfmax').value = sc; $('p-wfmaxv').textContent = sc;
+    $('p-wfmin').value = sf; $('p-wfminv').textContent = sf;
+    const s = radio.spectrum;
+    if (s) {
+        s.max_db = sc; s.min_db = sf;
+        s.wf_max_db = sc; s.wf_min_db = sf;
+    }
+    buildDbLabels();
+}
+$('p-sp-auto').onclick = function(){
+    const bins = radio.bins;
+    if (!bins || bins.length === 0) return;
+    // Skip first/last 20 bins — edge roll-off produces misleading extremes
+    let bMin = Infinity, bMax = -Infinity;
+    const lo = Math.min(20, bins.length), hi = Math.max(lo, bins.length - 20);
+    for (let i = lo; i < hi; i++) {
+        if (bins[i] < bMin) bMin = bins[i];
+        if (bins[i] > bMax) bMax = bins[i];
+    }
+    // Round to 5 dB grid with margin so traces aren't pinned to edges
+    const newMax = Math.ceil((bMax + 5) / 5) * 5;
+    const newMin = Math.floor((bMin - 5) / 5) * 5;
+    setSlidersAndRange(
+        Math.max(-160, Math.min(0, newMax)),
+        Math.max(-160, Math.min(0, newMin))
+    );
+};
+
+$('p-vis').onclick = ()=>{
+    const c = $('p-panel').classList.toggle('collapsed');
+    $('p-vis').textContent = c?'▶':'◀';
+    setTimeout(resize,20);
+};
+
+// ── Diagnostics ───────────────────────────────────────────────────
+const DIAG = {
+    'Tune':      ()=>typeof window.frequencyHz!=='undefined'?(window.frequencyHz/1e6).toFixed(6)+' MHz':'—',
+    'RF Gain':   ()=>window.rf_gain!==undefined?window.rf_gain.toFixed(1)+' dB':'—',
+    'RF Atten':  ()=>window.rf_atten!==undefined?window.rf_atten.toFixed(1)+' dB':'—',
+    'RF AGC':    ()=>window.rf_agc!==undefined?(window.rf_agc==1?'enabled':'disabled'):'—',
+    'A/D':       ()=>window.if_power!==undefined?window.if_power.toFixed(1)+' dBFS':'—',
+    'SSRC':      ()=>window.ssrc!==undefined?window.ssrc:'—',
+    'Bins':      ()=>window.binCount!==undefined?window.binCount.toLocaleString():'1,620',
+    'Bin width': ()=>window.binWidthHz!==undefined?window.binWidthHz.toLocaleString()+' Hz':'—',
+    'Overranges':()=>window.ad_over!==undefined?window.ad_over.toLocaleString():'—',
+    'N₀':        ()=>window.noise_density_audio!==undefined?window.noise_density_audio.toFixed(1)+' dBm/Hz':'—',
+    'Zoom':      ()=>{ try{return document.getElementById('zoom_level').value;}catch(e){return '—';} },
+    'Span':      ()=>`${((centerKhz-spanKhz/2)/1000).toFixed(3)}–${((centerKhz+spanKhz/2)/1000).toFixed(3)} MHz`,
+    'specH':     ()=>window.spectrum?window.spectrum.spectrumHeight:'—',
+    'srcSize':   ()=>_src?`${_src.width}×${_src.height}`:'waiting…',
+};
+function updateDiag() {
+    if (!diagOpen) return;
+    const grid = $('p-dg-grid'); grid.innerHTML='';
+    for (const [l,fn] of Object.entries(DIAG)) {
+        const le=document.createElement('span'); le.style.cssText='color:#aaa;white-space:nowrap'; le.textContent=l+':';
+        const ve=document.createElement('span'); ve.style.cssText='color:#eee;white-space:nowrap'; ve.textContent=fn();
+        grid.appendChild(le); grid.appendChild(ve);
+    }
+}
+setInterval(updateDiag, 2000);
+$('p-dg-hdr').onclick = ()=>{
+    diagOpen=!diagOpen;
+    $('p-dg-body').style.display=diagOpen?'block':'none';
+    $('p-dg-arr').textContent=diagOpen?'hide':'show';
+    $('p-dg-title').textContent=(diagOpen?'▾':'▸')+' RADIO STATUS';
+    if(diagOpen) updateDiag();
+};
+$('p-sp-hdr').onclick = ()=>{
+    spOpen=!spOpen;
+    $('p-sp-body').style.display=spOpen?'block':'none';
+    $('p-sp-arr').textContent=spOpen?'hide':'show';
+    $('p-sp-title').textContent=(spOpen?'▾':'▸')+' SPECTRUM';
+};
+
+// ── Mouse / trackpad interactions on overlay canvases ─────────────
+// Pan:  press-and-drag (mouse or trackpad click-drag)
+//       horizontal two-finger scroll (trackpad deltaX)
+// Zoom: mouse wheel, trackpad pinch (ctrlKey + wheel), two-finger
+//       vertical scroll
+// Click: tune to the clicked frequency
+// ──────────────────────────────────────────────────────────────────
+let drag = null;
+let _panSuppressSync = false;   // block loop() center sync during drag
+let _lastPanSend = 0;
+const PAN_SEND_MS = 50;        // throttle Z:c: sends during drag
+
+let _zoomAccum = 0;            // accumulate small pinch deltas
+let _zoomTimer = null;
+
+function sendCenter(khz) {
+    radio.setCenter(khz);
+}
+
+[$('p-wf'),$('p-sp'),$('p-sc')].forEach(cv => {
+    cv.style.pointerEvents = 'all'; cv.style.cursor = 'crosshair';
+
+    // ── mousedown: start drag ────────────────────────────────────
+    cv.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        drag = { sx: e.clientX, sc0: centerKhz, moved: false, cv: cv };
+        cv.style.cursor = 'grabbing';
+    });
+
+    // ── mousemove on canvas: tooltip only ────────────────────────
+    cv.addEventListener('mousemove', e => {
+        const r  = cv.getBoundingClientRect();
+        const f  = (centerKhz - spanKhz/2) + ((e.clientX - r.left) / r.width) * spanKhz;
+        const tip = $('p-tip'), wr = $('p-wf-wrap').getBoundingClientRect();
+        tip.style.display = 'block';
+        tip.style.left = Math.min(e.clientX - wr.left + 8, wr.width - 90) + 'px';
+        tip.textContent = (f / 1000).toFixed(4) + ' MHz';
+    });
+
+    cv.addEventListener('mouseleave', () => { $('p-tip').style.display = 'none'; });
+
+    // ── wheel: zoom or horizontal pan ────────────────────────────
+    cv.addEventListener('wheel', e => {
+        e.preventDefault();
+        // Horizontal two-finger scroll → pan
+        if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5
+                       && Math.abs(e.deltaX) > 2) {
+            const r = cv.getBoundingClientRect();
+            centerKhz += (e.deltaX / r.width) * spanKhz * 0.5;
+            sendCenter(centerKhz);
+            buildDX(); drawScale(); updatePB();
+            return;
+        }
+
+        // Vertical scroll / pinch → zoom via backend zoomin/zoomout
+        // Normalize deltaY: deltaMode 1 = lines (~30 px each)
+        let dy = e.deltaY;
+        if (e.deltaMode === 1) dy *= 30;
+        _zoomAccum += dy;
+
+        // Immediate trigger for large deltas (mouse wheel notch)
+        if (Math.abs(_zoomAccum) >= 40) {
+            if (_zoomAccum > 0) radio.zoomOut();
+            else radio.zoomIn();
+            _zoomAccum = 0;
+            if (_zoomTimer) { clearTimeout(_zoomTimer); _zoomTimer = null; }
+            return;
+        }
+        // Deferred trigger for small deltas (trackpad pinch)
+        if (!_zoomTimer) {
+            _zoomTimer = setTimeout(() => {
+                if (_zoomAccum > 5) radio.zoomOut();
+                else if (_zoomAccum < -5) radio.zoomIn();
+                _zoomAccum = 0;
+                _zoomTimer = null;
+            }, 120);
+        }
+    }, { passive: false });
+});
+
+// ── window-level drag (pan) handlers ─────────────────────────────
+// Attached to window so the drag continues even if the pointer
+// leaves the canvas (important for trackpad press-and-drag).
+window.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const r  = drag.cv.getBoundingClientRect();
+    const dx = e.clientX - drag.sx;
+    if (!drag.moved && Math.abs(dx) > 3) {
+        drag.moved = true; _panSuppressSync = true;
+    }
+    if (drag.moved) {
+        centerKhz = drag.sc0 - (dx / r.width) * spanKhz;
+        const now = Date.now();
+        if (now - _lastPanSend >= PAN_SEND_MS) {
+            sendCenter(centerKhz);
+            _lastPanSend = now;
+        }
+        buildDX(); drawScale(); updatePB();
+    }
+});
+window.addEventListener('mouseup', e => {
+    if (e.button !== 0 || !drag) return;
+    if (!drag.moved) {
+        const r = drag.cv.getBoundingClientRect();
+        const freq = (centerKhz - spanKhz/2) + ((e.clientX - r.left) / r.width) * spanKhz;
+        rjsTune(freq);
+    } else {
+        sendCenter(centerKhz);
+        _panSuppressSync = false;
+    }
+    drag.cv.style.cursor = 'crosshair';
+    drag = null;
+});
+
+window.addEventListener('resize', resize);
+updateClock(); setInterval(updateClock,1000);
+
+// Kick off the readiness poll — loop starts only once conditions are met
+waitForReady();
+
+})();
