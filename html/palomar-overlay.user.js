@@ -1260,6 +1260,7 @@ const PAN_SEND_MS = 50;        // throttle Z:c: sends during drag
 
 let _zoomAccum = 0;            // accumulate small pinch deltas
 let _zoomTimer = null;
+let _scrollPanTimer = null;    // suppress sync during trackpad pan
 
 function sendCenter(khz) {
     radio.setCenter(khz);
@@ -1272,6 +1273,7 @@ function sendCenter(khz) {
     cv.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
         drag = { sx: e.clientX, sc0: centerKhz, moved: false, cv: cv };
+        clearTimeout(_scrollPanTimer);
         cv.style.cursor = 'grabbing';
     });
 
@@ -1294,8 +1296,13 @@ function sendCenter(khz) {
         if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5
                        && Math.abs(e.deltaX) > 2) {
             const r = cv.getBoundingClientRect();
-            centerKhz += (e.deltaX / r.width) * spanKhz * 0.5;
-            sendCenter(centerKhz);
+            centerKhz += (e.deltaX / r.width) * spanKhz;
+            _panSuppressSync = true;
+            clearTimeout(_scrollPanTimer);
+            _scrollPanTimer = setTimeout(() => {
+                sendCenter(centerKhz);
+                _panSuppressSync = false;
+            }, 120);
             buildDX(); drawScale(); updatePB();
             return;
         }
