@@ -169,6 +169,7 @@ OV.innerHTML = `
   font-size:13px;background:#000;color:#fff;overflow:hidden;
 }
 #p-rf{flex:1;position:relative;min-height:0;display:flex;flex-direction:column}
+#p-sp-wrap,#p-wf-wrap,#p-sc-wrap{touch-action:none}
 #p-sp-wrap{flex:30;min-height:0;background:#000;position:relative;cursor:crosshair}
 #p-sp{display:block;width:100%;height:100%}
 #p-sp-db{
@@ -1261,6 +1262,8 @@ const PAN_SEND_MS = 50;        // throttle Z:c: sends during drag
 let _zoomAccum = 0;            // accumulate small pinch deltas
 let _zoomTimer = null;
 let _scrollPanTimer = null;    // suppress sync during trackpad pan
+let pinch = null;              // { d0: initial finger distance, mx0: midpoint X, sc0: centerKhz }
+let _lastTouchEnd = 0;         // ghost-click prevention
 
 function sendCenter(khz) {
     radio.setCenter(khz);
@@ -1272,6 +1275,7 @@ function sendCenter(khz) {
     // ── mousedown: start drag ────────────────────────────────────
     cv.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
+        if (Date.now() - _lastTouchEnd < 500) return; // ghost-click guard
         drag = { sx: e.clientX, sc0: centerKhz, moved: false, cv: cv };
         clearTimeout(_scrollPanTimer);
         cv.style.cursor = 'grabbing';
@@ -1331,13 +1335,33 @@ function sendCenter(khz) {
             }, 120);
         }
     }, { passive: false });
+
+    // ── touchstart: single-finger drag or two-finger pinch ───────
+    cv.addEventListener('touchstart', e => {
+        if (e.touches.length === 1) {
+            const t = e.touches[0];
+            drag = { sx: t.clientX, sc0: centerKhz, moved: false, cv: cv, touch: true };
+            clearTimeout(_scrollPanTimer);
+            pinch = null;
+        } else if (e.touches.length === 2) {
+            drag = null; // cancel single-finger drag
+            const t0 = e.touches[0], t1 = e.touches[1];
+            const dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
+            pinch = {
+                d0:  Math.hypot(dx, dy),
+                mx0: (t0.clientX + t1.clientX) / 2,
+                sc0: centerKhz
+            };
+        }
+        e.preventDefault();
+    }, { passive: false });
 });
 
 // ── window-level drag (pan) handlers ─────────────────────────────
 // Attached to window so the drag continues even if the pointer
 // leaves the canvas (important for trackpad press-and-drag).
 window.addEventListener('mousemove', e => {
-    if (!drag) return;
+    if (!drag || drag.touch) return;
     const r  = drag.cv.getBoundingClientRect();
     const dx = e.clientX - drag.sx;
     if (!drag.moved && Math.abs(dx) > 3) {
@@ -1354,7 +1378,7 @@ window.addEventListener('mousemove', e => {
     }
 });
 window.addEventListener('mouseup', e => {
-    if (e.button !== 0 || !drag) return;
+    if (e.button !== 0 || !drag || drag.touch) return;
     if (!drag.moved) {
         const r = drag.cv.getBoundingClientRect();
         const freq = (centerKhz - spanKhz/2) + ((e.clientX - r.left) / r.width) * spanKhz;
@@ -1365,6 +1389,83 @@ window.addEventListener('mouseup', e => {
     }
     drag.cv.style.cursor = 'crosshair';
     drag = null;
+});
+
+// ── window-level touch handlers ──────────────────────────────────
+// Attached to window so gestures continue even if finger moves off canvas.
+window.addEventListener('touchmove', e => {
+    // ── single-finger pan ────────────────────────────────────────
+    if (drag && drag.touch && e.touches.length === 1) {
+        const t  = e.touches[0];
+        const r  = drag.cv.getBoundingClientRect();
+        const dx = t.clientX - drag.sx;
+        if (!drag.moved && Math.abs(dx) > 3) {
+            drag.moved = true; _panSuppressSync = true;
+        }
+        if (drag.moved) {
+            centerKhz = drag.sc0 - (dx / r.width) * spanKhz;
+            const now = Date.now();
+            if (now - _lastPanSend >= PAN_SEND_MS) {
+                sendCenter(centerKhz);
+                _lastPanSend = now;
+            }
+            buildDX(); drawScale(); updatePB();
+        }
+        e.preventDefault();
+        return;
+    }
+    // ── two-finger pinch/pan ─────────────────────────────────────
+    if (pinch && e.touches.length === 2) {
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
+        const dist = Math.hypot(dx, dy);
+        const mx   = (t0.clientX + t1.clientX) / 2;
+
+        // Pinch zoom: step once when ratio crosses threshold, then reset
+        const ratio = dist / pinch.d0;
+        if (ratio > 1.25) {
+            radio.zoomIn();
+            pinch.d0 = dist; // reset baseline
+        } else if (ratio < 0.8) {
+            radio.zoomOut();
+            pinch.d0 = dist;
+        }
+
+        // Two-finger horizontal slide → pan
+        const mxDelta = mx - pinch.mx0;
+        if (Math.abs(mxDelta) > 5) {
+            // Use first canvas for width reference (all canvases same width)
+            const r = $('p-sp').getBoundingClientRect();
+            centerKhz = pinch.sc0 - (mxDelta / r.width) * spanKhz;
+            _panSuppressSync = true;
+            buildDX(); drawScale(); updatePB();
+        }
+        e.preventDefault();
+        return;
+    }
+}, { passive: false });
+
+window.addEventListener('touchend', e => {
+    if (drag && drag.touch) {
+        if (!drag.moved) {
+            // Tap to tune — use the recorded start position
+            const r = drag.cv.getBoundingClientRect();
+            const freq = (centerKhz - spanKhz/2) + ((drag.sx - r.left) / r.width) * spanKhz;
+            rjsTune(freq);
+        } else {
+            sendCenter(centerKhz);
+            _panSuppressSync = false;
+        }
+        drag = null;
+        _lastTouchEnd = Date.now();
+    }
+    // If fewer than 2 fingers remain, finalize pinch
+    if (pinch && e.touches.length < 2) {
+        sendCenter(centerKhz);
+        _panSuppressSync = false;
+        pinch = null;
+        _lastTouchEnd = Date.now();
+    }
 });
 
 window.addEventListener('resize', resize);
