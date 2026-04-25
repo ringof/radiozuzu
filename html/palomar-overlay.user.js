@@ -251,7 +251,7 @@ select.ps{
 }
 #p-sm{
   border:4px solid gray;border-width:4px 5px;border-radius:5px;
-  height:20px;position:relative;overflow:hidden;
+  height:20px;min-height:20px;flex-shrink:0;position:relative;overflow:hidden;
   background:linear-gradient(90deg,#115511,#44aa44 38%,#aacc00 62%,#ddaa00 76%,#cc4400 87%,#990000);
 }
 #p-smf{position:absolute;right:0;top:0;bottom:0;background:#575757;transition:width .06s;width:65%}
