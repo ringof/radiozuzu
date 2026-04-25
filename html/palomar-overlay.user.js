@@ -863,6 +863,14 @@ function loop() {
                 tuneKhz = rKhz; centerKhz = cKhz; spanKhz = sKhz;
                 updateFDisp(); buildDX();
             }
+            const rMode = radio.mode;
+            if (rMode && rMode !== curMode) {
+                curMode = rMode;
+                document.querySelectorAll('#p-inner [data-mode]').forEach(b=>b.classList.remove('sel'));
+                const sel = document.querySelector('#p-inner [data-mode="'+curMode+'"]');
+                if (sel) sel.classList.add('sel');
+                drawScale(); updatePB();
+            }
         }
         renderFromSource();
     }
