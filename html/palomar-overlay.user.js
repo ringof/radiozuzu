@@ -796,10 +796,22 @@ function applyPresets() {
     if (PRESETS.spMin != null) { sf = PRESETS.spMin; $('p-spmin').value = sf; $('p-spminv').textContent = sf; if (sp) sp.min_db = sf; buildDbLabels(); }
 
     if (PRESETS.autoStartAudio) {
-        setTimeout(() => {
-            radio.toggleAudio();
-            $('p-aud').classList.add('sel');
-        }, 600);
+        // Defer audio start until the first user gesture so the browser's
+        // autoplay policy allows the AudioContext to start immediately.
+        const startAudio = () => {
+            window.removeEventListener('click', startAudio, true);
+            window.removeEventListener('keydown', startAudio, true);
+            window.removeEventListener('pointerdown', startAudio, true);
+            setTimeout(() => {
+                if (!radio.audioRunning) {
+                    radio.toggleAudio();
+                    $('p-aud').classList.add('sel');
+                }
+            }, 100);
+        };
+        window.addEventListener('click', startAudio, true);
+        window.addEventListener('keydown', startAudio, true);
+        window.addEventListener('pointerdown', startAudio, true);
     }
 }
 
