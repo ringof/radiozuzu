@@ -307,7 +307,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 </div>
 
 <div id="p-panel">
-  <div id="p-vis">◀</div>
+  <div id="p-vis">▶</div>
   <div id="p-inner">
     <div id="p-fdisp"><input id="p-fnum" value="—" readonly><span id="p-funit">kHz</span></div>
 
@@ -1188,7 +1188,7 @@ $('p-sp-auto').onclick = function(){
 
 $('p-vis').onclick = ()=>{
     const c = $('p-panel').classList.toggle('collapsed');
-    $('p-vis').textContent = c?'▶':'◀';
+    $('p-vis').textContent = c?'◀':'▶';
     setTimeout(resize,20);
 };
 
