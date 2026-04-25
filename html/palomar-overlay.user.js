@@ -276,6 +276,18 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 #p-stat a:hover{text-decoration:underline}
 #p-clk{color:#aaa;white-space:nowrap}
 #p-badge{display:inline-block;width:8px;height:8px;border-radius:50%;background:#8a4500;flex-shrink:0;cursor:default}
+#p-help{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:2147483646}
+#p-help-inner{position:relative;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;background:#2a2a2a;border-radius:10px;padding:20px 24px;font-size:13px;color:#ddd;scrollbar-width:thin;scrollbar-color:#666 #2a2a2a}
+#p-help-inner::-webkit-scrollbar{width:6px}
+#p-help-inner::-webkit-scrollbar-thumb{background:#666;border-radius:3px}
+#p-help-close{position:absolute;top:8px;right:12px;font-size:20px;color:#999;cursor:pointer;background:none;border:none;padding:4px 8px;line-height:1}
+#p-help-close:hover{color:#fff}
+#p-help h3{font-size:16px;color:#fff;margin-bottom:14px}
+#p-help h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#888;margin:14px 0 6px;border-bottom:1px solid #444;padding-bottom:4px}
+#p-help table{width:100%;border-collapse:collapse}
+#p-help td{padding:2px 8px;vertical-align:top;font-size:12px;line-height:1.6}
+#p-help td:first-child{color:#6af;white-space:nowrap;width:1%;font-weight:bold}
+#p-help td:last-child{color:#ccc}
 </style>
 
 <div id="p-rf">
@@ -383,7 +395,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     <hr class="p-hr">
     <div class="p-s">Options</div>
     <div class="br"><button class="cb">DX labels</button><button class="cb">Memories</button></div>
-    <div class="br" style="margin-top:3px"><button class="cb">Ext ▼</button><button class="cb">Help</button></div>
+    <div class="br" style="margin-top:3px"><button class="cb">Ext ▼</button><button class="cb" id="p-help-btn">Help</button></div>
 
     <div style="flex:1;min-height:8px"></div>
 
@@ -395,6 +407,58 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
       <span id="p-clk">00:00:00 UTC</span>
       <span id="p-badge" title="Connecting…"></span>
     </div>
+  </div>
+</div>
+
+<div id="p-help">
+  <div id="p-help-inner">
+    <button id="p-help-close">&times;</button>
+    <h3>Palomar SDR — Quick Reference</h3>
+
+    <h4>Mouse / Touch</h4>
+    <table>
+      <tr><td>Click waterfall</td><td>Tune to frequency</td></tr>
+      <tr><td>Drag on waterfall</td><td>Pan spectrum</td></tr>
+      <tr><td>Scroll / pinch</td><td>Zoom in/out</td></tr>
+      <tr><td>Horiz. two-finger scroll</td><td>Pan left/right</td></tr>
+      <tr><td>Drag green passband edges</td><td>Adjust filter bandwidth</td></tr>
+      <tr><td>Double-click freq scale</td><td>Reset passband to default</td></tr>
+      <tr><td>Click frequency display</td><td>Type frequency in kHz</td></tr>
+      <tr><td>Drag divider bar</td><td>Resize spectrum / waterfall</td></tr>
+    </table>
+
+    <h4>Keyboard</h4>
+    <table>
+      <tr><td>Shift + &larr; / &rarr;</td><td>Step frequency down/up</td></tr>
+      <tr><td>f</td><td>Toggle fullscreen</td></tr>
+      <tr><td>Escape</td><td>Close help / cancel entry</td></tr>
+    </table>
+
+    <h4>Keyboard (fullscreen only)</h4>
+    <table>
+      <tr><td>Space</td><td>Pause/resume spectrum</td></tr>
+      <tr><td>c</td><td>Cycle colormap</td></tr>
+      <tr><td>&uarr; / &darr;</td><td>Shift baseline</td></tr>
+      <tr><td>&larr; / &rarr;</td><td>Adjust amplitude range</td></tr>
+      <tr><td>s / w</td><td>Spectrum height &plusmn;</td></tr>
+      <tr><td>+ / &minus;</td><td>FFT averaging &plusmn;</td></tr>
+      <tr><td>m</td><td>Toggle max hold</td></tr>
+      <tr><td>z</td><td>Center on tuned frequency</td></tr>
+      <tr><td>i / o</td><td>Zoom in/out</td></tr>
+      <tr><td>a</td><td>Autoscale</td></tr>
+    </table>
+
+    <h4>Panel Controls</h4>
+    <table>
+      <tr><td>Frequency</td><td>Click the gold number to type a frequency in kHz, press Enter</td></tr>
+      <tr><td>&lt; &gt; arrows</td><td>Step by selected increment; &lt;&lt; &gt;&gt; use next larger step</td></tr>
+      <tr><td>Mode buttons</td><td>AM, SAM, LSB, USB, CWU, CWL, FM, IQ</td></tr>
+      <tr><td>Z &minus; / Z +</td><td>Zoom out/in; Ctr re-centers on tuned frequency</td></tr>
+      <tr><td>S-meter</td><td>Live signal strength from baseband power</td></tr>
+      <tr><td>Audio / Rec</td><td>Start/stop audio; volume slider below</td></tr>
+      <tr><td>Spectrum</td><td>WF/Sp min/max, spectrum ratio, colormap, autoscale, run/pause</td></tr>
+      <tr><td>Radio Status</td><td>Diagnostics: tune, RF gain, bins, span, etc.</td></tr>
+    </table>
   </div>
 </div>
 `;
@@ -409,7 +473,7 @@ const scC = $('p-sc'),  scCtx = scC.getContext('2d');
 // ── State ─────────────────────────────────────────────────────────
 let tuneKhz = 14225, centerKhz = 15000, spanKhz = 20000;
 let sc = -30, sf = -130;
-let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, smT = 0.35;
+let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, helpOpen = false, smT = 0.35;
 let maxH = null, _pbOverride = null, _pbKey = '';
 const ZOOMS = [30000,20000,15000,10000,5000,2000,1000,500,200,100];
 const PB = {usb:[0,2.8],lsb:[-2.8,0],am:[-4,4],sam:[-4,4],cwu:[0,.5],cwl:[-.5,0],fm:[-6,6],iq:[-5,5]};
@@ -1168,6 +1232,18 @@ $('p-sp-hdr').onclick = ()=>{
     $('p-sp-arr').textContent=spOpen?'hide':'show';
     $('p-sp-title').textContent=(spOpen?'▾':'▸')+' SPECTRUM';
 };
+
+// ── Help modal ──────────────────────────────────────────────────
+function toggleHelp(show) {
+    helpOpen = typeof show === 'boolean' ? show : !helpOpen;
+    $('p-help').style.display = helpOpen ? 'flex' : 'none';
+}
+$('p-help-btn').onclick = () => toggleHelp();
+$('p-help-close').onclick = () => toggleHelp(false);
+$('p-help').onclick = e => { if (e.target === $('p-help')) toggleHelp(false); };
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && helpOpen) { toggleHelp(false); e.stopPropagation(); }
+}, true);
 
 // ── Mouse / trackpad interactions on overlay canvases ─────────────
 // Pan:  press-and-drag (mouse or trackpad click-drag)
