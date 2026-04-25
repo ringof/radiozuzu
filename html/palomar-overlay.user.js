@@ -440,6 +440,12 @@ function syncFromRadio() {
 syncFromRadio();
 
 // ── Resize ────────────────────────────────────────────────────────
+let _resizeDirty = true;
+const _ro = new ResizeObserver(() => { _resizeDirty = true; });
+_ro.observe($('p-sp-wrap'));
+_ro.observe($('p-wf-wrap'));
+_ro.observe($('p-sc-wrap'));
+
 function resize() {
     [spC, wfC, scC].forEach(c => {
         const W = c.parentElement.clientWidth, H = c.parentElement.clientHeight;
@@ -696,8 +702,12 @@ function getActivePassbandKhz() {
     window.addEventListener('pointercancel', () => { dragTarget = null; });
 })();
 
+let _dbKey = '';
 function buildDbLabels() {
     const H = spC.height; if (!H) return;
+    const key = `${sc}|${sf}|${H}`;
+    if (key === _dbKey) return;
+    _dbKey = key;
     const el = $('p-sp-db'), dR = sc-sf; el.innerHTML = '';
     for (let db = Math.ceil(sf/20)*20; db <= sc; db += 20) {
         const s = document.createElement('span');
@@ -713,9 +723,14 @@ const DX=[
     {f:14100,l:'WSPR'},{f:14225,l:'SSB'},{f:9975,l:'CHU'},
     {f:7200,l:'AM'},{f:9500,l:'SW'},
 ];
+let _dxKey = '';
 function buildDX() {
-    const bar = $('p-dx-bar'); bar.innerHTML = '';
-    const W = bar.clientWidth, lo = centerKhz-spanKhz/2;
+    const bar = $('p-dx-bar'), W = bar.clientWidth;
+    const key = `${centerKhz}|${spanKhz}|${W}`;
+    if (key === _dxKey) return;
+    _dxKey = key;
+    bar.innerHTML = '';
+    const lo = centerKhz-spanKhz/2;
     for (const {f,l} of DX) {
         const x = ((f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
         const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
@@ -827,7 +842,7 @@ function waitForReady() {
 
 function loop() {
     if (!paused) {
-        resize();
+        if (_resizeDirty) { _resizeDirty = false; resize(); }
         if (!_panSuppressSync) {
             const rKhz = radio.freqKhz;
             const cKhz = radio.centerKhz;
@@ -850,12 +865,40 @@ function loop() {
 // ═══════════════════════════════════════════════════════════════════
 function rjsTune(khz) {
     tuneKhz = khz;
-    radio.tune(khz);
+    // Send F: command directly via websocket — mirrors spectrum.js click handler.
+    try {
+        if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+            ws.send('F:' + khz.toFixed(3));
+    } catch(e) {}
+    if (window.spectrum) window.spectrum.frequency = khz * 1000;
+    // Sync frequencyHz immediately so the per-frame sync check won't revert tuneKhz
+    window.frequencyHz = khz * 1000;
+    const inp = document.getElementById('freq');
+    if (inp) inp.value = khz.toFixed(3);
     updateFDisp();
 }
 function rjsMode(mode) {
     curMode = mode;
-    radio.setMode(mode);
+    // Send M: command directly via websocket
+    try {
+        if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+            ws.send('M:' + mode);
+    } catch(e) {}
+    const modeEl = document.getElementById('mode');
+    if (modeEl) modeEl.value = mode;
+    // Reinitialize PCMPlayer for FM↔non-FM sample rate change
+    try {
+        if (typeof player !== 'undefined' && player) {
+            const sr = (mode === 'fm') ? 24000 : 12000;
+            const ch = (mode === 'iq') ? 2 : 1;
+            player.destroy();
+            player = new PCMPlayer({ encoding:'16bitInt', channels:ch,
+                                     sampleRate:sr, flushingTime:250 });
+            const vol = document.getElementById('volume_control');
+            if (vol && typeof setPlayerVolume === 'function')
+                setPlayerVolume(vol.value);
+        }
+    } catch(e) {}
     drawScale(); updatePB();
 }
 function getStep() {
