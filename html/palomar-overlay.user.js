@@ -86,9 +86,17 @@ const radio = {
         const btn = document.getElementById('zoomcenter');
         if (btn) btn.click();
     },
-    sendFilterEdges() {
-        const btn = document.getElementById('edge_button');
-        if (btn) btn.click();
+    sendFilterEdges(low, high) {
+        // Send e: command directly via WebSocket (edge_button may be disabled)
+        try {
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+                ws.send('e:' + Math.round(low) + ':' + Math.round(high));
+        } catch(e) {}
+        // Keep radio.js inputs in sync
+        const lowEl = document.getElementById('filterLowInput');
+        const highEl = document.getElementById('filterHighInput');
+        if (lowEl) lowEl.value = Math.round(low);
+        if (highEl) highEl.value = Math.round(high);
     },
     // Pan — no DOM equivalent; uses spectrum object + websocket
     setCenter(khz) {
@@ -665,25 +673,15 @@ function getActivePassbandKhz() {
         const absHz = loCanvasHz + x * hpp;
         const relHz = Math.round(absHz - tuneKhz * 1000);
 
-        const lowEl = document.getElementById('filterLowInput');
-        const highEl = document.getElementById('filterHighInput');
-        if (!lowEl || !highEl) return;
-
-        let low = parseFloat(lowEl.value);
-        let high = parseFloat(highEl.value);
-        if (!Number.isFinite(low) || !Number.isFinite(high)) {
-            const pb = getActivePassbandKhz();
-            low = pb[0] * 1000;
-            high = pb[1] * 1000;
-        }
+        const pb = getActivePassbandKhz();
+        let low = pb[0] * 1000;
+        let high = pb[1] * 1000;
 
         if (target === 'low') low = relHz;
         if (target === 'high') high = relHz;
         [low, high] = clampEdges(low, high, target);
 
-        lowEl.value = Math.round(low);
-        highEl.value = Math.round(high);
-        radio.sendFilterEdges();
+        radio.sendFilterEdges(low, high);
     }
 
     function startDrag(e, target) {
@@ -700,6 +698,9 @@ function getActivePassbandKhz() {
     });
     window.addEventListener('pointerup', () => { dragTarget = null; });
     window.addEventListener('pointercancel', () => { dragTarget = null; });
+
+    // Double-click passband area to reset filter to mode defaults
+    scWrap.addEventListener('dblclick', () => { resetPassband(); });
 })();
 
 let _dbKey = '';
@@ -919,7 +920,12 @@ function rjsMode(mode) {
                 setPlayerVolume(vol.value);
         }
     } catch(e) {}
+    resetPassband(mode);
     drawScale(); updatePB();
+}
+function resetPassband(mode) {
+    const pb = PB[mode || curMode];
+    if (pb) radio.sendFilterEdges(pb[0] * 1000, pb[1] * 1000);
 }
 function getStep() {
     const s = $('p-step').value;
