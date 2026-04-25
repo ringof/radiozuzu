@@ -410,7 +410,7 @@ const scC = $('p-sc'),  scCtx = scC.getContext('2d');
 let tuneKhz = 14225, centerKhz = 15000, spanKhz = 20000;
 let sc = -30, sf = -130;
 let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, smT = 0.35;
-let maxH = null;
+let maxH = null, _pbOverride = null, _pbKey = '';
 const ZOOMS = [30000,20000,15000,10000,5000,2000,1000,500,200,100];
 const PB = {usb:[0,2.8],lsb:[-2.8,0],am:[-4,4],sam:[-4,4],cwu:[0,.5],cwl:[-.5,0],fm:[-6,6],iq:[-5,5]};
 
@@ -617,6 +617,9 @@ function updateTuneLabel() {
 function updatePB() {
     const W = scC.width; if (!W) return;
     const pb = getActivePassbandKhz();
+    const key = `${tuneKhz}|${centerKhz}|${spanKhz}|${pb[0]}|${pb[1]}|${W}`;
+    if (key === _pbKey) return;
+    _pbKey = key;
     const lo = centerKhz-spanKhz/2, H = $('p-sc-wrap').clientHeight;
     const car = Math.round(((tuneKhz-lo)/spanKhz)*W);
     const x0  = Math.round(((tuneKhz+pb[0]-lo)/spanKhz)*W);
@@ -631,7 +634,6 @@ function updatePB() {
 // Fallback to static mode defaults if globals are not available yet.
 // _pbOverride is set during drag for instant visual feedback, cleared
 // once the server response arrives with matching values.
-let _pbOverride = null;
 function getActivePassbandKhz() {
     if (_pbOverride) return _pbOverride;
     const fLo = radio.filterLow, fHi = radio.filterHigh;
@@ -879,6 +881,7 @@ function loop() {
                 drawScale(); updatePB();
             }
         }
+        updatePB();
         renderFromSource();
     }
     frame++;
