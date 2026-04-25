@@ -614,9 +614,13 @@ function updateTuneLabel() {
     lbl.style.left = x+'px';
 }
 
+let _pbKey = '';
 function updatePB() {
     const W = scC.width; if (!W) return;
     const pb = getActivePassbandKhz();
+    const key = `${tuneKhz}|${centerKhz}|${spanKhz}|${pb[0]}|${pb[1]}|${W}`;
+    if (key === _pbKey) return;
+    _pbKey = key;
     const lo = centerKhz-spanKhz/2, H = $('p-sc-wrap').clientHeight;
     const car = Math.round(((tuneKhz-lo)/spanKhz)*W);
     const x0  = Math.round(((tuneKhz+pb[0]-lo)/spanKhz)*W);
@@ -879,6 +883,7 @@ function loop() {
                 drawScale(); updatePB();
             }
         }
+        updatePB();
         renderFromSource();
     }
     frame++;
