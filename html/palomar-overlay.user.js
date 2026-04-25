@@ -629,7 +629,11 @@ function updatePB() {
 
 // Prefer live backend-confirmed passband edges from radio.js globals.
 // Fallback to static mode defaults if globals are not available yet.
+// _pbOverride is set during drag for instant visual feedback, cleared
+// once the server response arrives with matching values.
+let _pbOverride = null;
 function getActivePassbandKhz() {
+    if (_pbOverride) return _pbOverride;
     const fLo = radio.filterLow, fHi = radio.filterHigh;
     if (Number.isFinite(fLo) && Number.isFinite(fHi)) {
         return [Math.min(fLo, fHi) / 1000, Math.max(fLo, fHi) / 1000];
@@ -681,6 +685,8 @@ function getActivePassbandKhz() {
         if (target === 'high') high = relHz;
         [low, high] = clampEdges(low, high, target);
 
+        _pbOverride = [low / 1000, high / 1000];
+        updatePB();
         radio.sendFilterEdges(low, high);
     }
 
@@ -696,8 +702,8 @@ function getActivePassbandKhz() {
         if (!dragTarget) return;
         applyDraggedEdge(e.clientX, dragTarget);
     });
-    window.addEventListener('pointerup', () => { dragTarget = null; });
-    window.addEventListener('pointercancel', () => { dragTarget = null; });
+    window.addEventListener('pointerup', () => { dragTarget = null; _pbOverride = null; });
+    window.addEventListener('pointercancel', () => { dragTarget = null; _pbOverride = null; });
 
     // Double-click passband area to reset filter to mode defaults
     scWrap.addEventListener('dblclick', () => { resetPassband(); });
