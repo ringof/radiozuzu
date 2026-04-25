@@ -1240,7 +1240,8 @@ function toggleHelp(show) {
 }
 $('p-help-btn').onclick = () => toggleHelp();
 $('p-help-close').onclick = () => toggleHelp(false);
-$('p-help').onclick = () => toggleHelp(false);
+$('p-help').addEventListener('click', () => toggleHelp(false));
+$('p-help-inner').addEventListener('click', () => toggleHelp(false));
 window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && helpOpen) { toggleHelp(false); e.stopPropagation(); }
 }, true);
