@@ -1075,6 +1075,8 @@ function rjsTune(khz) {
     const inp = document.getElementById('freq');
     if (inp) inp.value = khz.toFixed(3);
     updateFDisp();
+    _dxKey = '';
+    requestAnimationFrame(() => buildDX());
 }
 function rjsMode(mode) {
     curMode = mode;
