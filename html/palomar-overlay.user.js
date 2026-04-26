@@ -1384,6 +1384,12 @@ window.addEventListener('keydown', e => {
     if (e.key === 'a' && document.activeElement !== $('p-fnum')) {
         doAutoscale();
     }
+    if (e.key === 'i' && document.activeElement !== $('p-fnum')) {
+        radio.zoomIn();
+    }
+    if (e.key === 'o' && document.activeElement !== $('p-fnum')) {
+        radio.zoomOut();
+    }
 
     // ── Fullscreen toggle ────────────────────────────────────────
     // We fullscreen #p-overlay (not spectrum.js's canvas) because the
