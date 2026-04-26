@@ -864,11 +864,11 @@ function buildDX() {
     let lastRight = -Infinity;
     for (const entry of DX) {
         const x = ((entry.f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
-        const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
         const lblLeft = x + 2;
         const lblWidth = entry.l.length * 6 + 10;
         if (lblLeft < lastRight + 4) continue;
         lastRight = lblLeft + lblWidth;
+        const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
         const lb = document.createElement('div'); lb.className='p-dxt'; lb.style.left=(x+2)+'px'; lb.textContent=entry.l;
         lb.style.pointerEvents = 'auto';
         lb.addEventListener('click', e => {
