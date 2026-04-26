@@ -870,6 +870,8 @@ function buildDX() {
             e.stopPropagation();
             if (entry.m) rjsMode(entry.m);
             rjsTune(entry.f);
+            _dxKey = '';
+            buildDX();
         });
         if (entry.n) lb.title = `${(entry.f/1000).toFixed(3)} MHz \u2014 ${entry.n}`;
         if (Math.abs(entry.f - tuneKhz) < 0.5) lb.classList.add('active');
