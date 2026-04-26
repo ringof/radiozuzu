@@ -1099,6 +1099,9 @@ function rjsMode(mode) {
         }
     } catch(e) {}
     resetPassband(mode);
+    document.querySelectorAll('#p-inner [data-mode]').forEach(b=>b.classList.remove('sel'));
+    const selBtn = document.querySelector('#p-inner [data-mode="'+mode+'"]');
+    if (selBtn) selBtn.classList.add('sel');
     drawScale(); updatePB();
 }
 function resetPassband(mode) {
