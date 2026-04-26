@@ -191,6 +191,11 @@ OV.innerHTML = `
   background:#333;border:1px solid #666;color:#e8c000;
   font-size:10px;padding:1px 5px;z-index:5;top:4px;
 }
+#p-pause-label{
+  display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font:bold 28px sans-serif;color:rgba(255,255,255,.7);
+  pointer-events:none;z-index:10;text-shadow:0 0 10px #000;
+}
 .p-dxl{position:absolute;width:1px;background:#000;top:0;bottom:0}
 .p-dxt{position:absolute;font-size:10px;padding:1px 3px;border:1px solid #000;
   border-radius:3px;background:rgba(255,255,220,.85);color:#000;white-space:nowrap;top:1px}
@@ -304,6 +309,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     </div>
   </div>
   <div id="p-wf-wrap"><canvas id="p-wf"></canvas><div id="p-tip"></div></div>
+  <div id="p-pause-label">PAUSED</div>
 </div>
 
 <div id="p-panel">
@@ -1141,10 +1147,15 @@ $('p-spratio').oninput = function(){
     window.addEventListener('mouseup',    onEnd);
     window.addEventListener('touchend',   onEnd);
 })();
-$('p-run').onclick  = function(){
-    paused=!paused; this.textContent=paused?'⏸ Paused':'▶ Run';
-    if(paused) this.classList.remove('sel'); else this.classList.add('sel');
-};
+function togglePause() {
+    paused = !paused;
+    $('p-run').textContent = paused ? '⏸ Paused' : '▶ Run';
+    if (paused) $('p-run').classList.remove('sel'); else $('p-run').classList.add('sel');
+    $('p-sp-wrap').style.opacity = paused ? '0.4' : '';
+    $('p-wf-wrap').style.opacity = paused ? '0.4' : '';
+    $('p-pause-label').style.display = paused ? 'block' : 'none';
+}
+$('p-run').onclick = togglePause;
 // ── Colormap cycle ───────────────────────────────────────────────
 // colormaps[] is defined in colormap.js: turbo, fosphor, viridis,
 // inferno, magma, jet, binary, blue, short, kiwi (index 0–9).
@@ -1261,6 +1272,12 @@ $('p-help').addEventListener('click', () => toggleHelp(false));
 $('p-help-inner').addEventListener('click', () => toggleHelp(false));
 window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && helpOpen) { toggleHelp(false); e.stopPropagation(); }
+
+    // ── Pause/resume ─────────────────────────────────────────────
+    if (e.key === ' ' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        togglePause();
+    }
 
     // ── Fullscreen toggle ────────────────────────────────────────
     // We fullscreen #p-overlay (not spectrum.js's canvas) because the
