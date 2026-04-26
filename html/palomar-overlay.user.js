@@ -819,12 +819,39 @@ function buildDbLabels() {
     }
 }
 
-const DX=[
-    {f:5000,l:'WWV'},{f:10000,l:'WWV'},{f:15000,l:'WWV'},
-    {f:7074,l:'FT8'},{f:14074,l:'FT8'},{f:21074,l:'FT8'},
-    {f:14100,l:'WSPR'},{f:14225,l:'SSB'},{f:9975,l:'CHU'},
-    {f:7200,l:'AM'},{f:9500,l:'SW'},
+let DX=[
+    {f:5000,l:'WWV',m:'am',n:'NIST time standard, Fort Collins CO'},
+    {f:10000,l:'WWV',m:'am',n:'NIST time standard, Fort Collins CO'},
+    {f:15000,l:'WWV',m:'am',n:'NIST time standard, Fort Collins CO'},
+    {f:7074,l:'FT8',m:'usb',n:'FT8 digital mode (WSJT-X)'},
+    {f:14074,l:'FT8',m:'usb',n:'FT8 digital mode (WSJT-X)'},
+    {f:21074,l:'FT8',m:'usb',n:'FT8 digital mode (WSJT-X)'},
+    {f:14100,l:'WSPR',m:'usb',n:'Weak Signal Propagation Reporter'},
+    {f:14225,l:'SSB',m:'usb',n:'SSB calling frequency'},
+    {f:9975,l:'CHU',m:'am',n:'NRC time standard, Ottawa ON'},
+    {f:7200,l:'AM',m:'am',n:'75m AM window'},
+    {f:9500,l:'SW',m:'am',n:'Shortwave broadcast band'},
 ];
+
+const KIWI_MODE = {
+    'USB':'usb', 'LSB':'lsb', 'AM':'am', 'SAM':'sam',
+    'CW':'cwu', 'CWN':'cwu', 'FM':'fm', 'IQ':'iq',
+    'FT8':'usb', 'FT4':'usb', 'RTTY':'usb', 'PSK':'usb',
+    'FSK':'usb', 'MSK':'usb', 'FAX':'usb',
+};
+
+function parseDxEntry(e) {
+    if (Array.isArray(e)) {
+        return {
+            f: e[0],
+            l: e[2] || '',
+            m: KIWI_MODE[(e[1]||'').toUpperCase()] || null,
+            n: (e[3] || '').replace(/%5cn/g, ' ') || null,
+        };
+    }
+    return e;
+}
+
 let _dxKey = '';
 function buildDX() {
     const bar = $('p-dx-bar'), W = bar.clientWidth;
