@@ -865,8 +865,8 @@ function buildDX() {
     for (const entry of DX) {
         const x = ((entry.f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
         const lblLeft = x + 2;
-        const lblWidth = entry.l.length * 6 + 10;
-        if (lblLeft < lastRight + 4) continue;
+        const lblWidth = entry.l.length * 7 + 12;
+        if (lblLeft < lastRight + 6) continue;
         lastRight = lblLeft + lblWidth;
         const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
         const lb = document.createElement('div'); lb.className='p-dxt'; lb.style.left=(x+2)+'px'; lb.textContent=entry.l;
