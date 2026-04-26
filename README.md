@@ -1,5 +1,13 @@
 # ka9q-web (W1EUJ fork)
 
+![Palomar SDR Overlay](latest.png)
+
+Active development is focused on the overlay UI — a KiwiSDR-inspired interface
+built on top of ka9q-web that adds spectrum click-to-tune, waterfall display,
+passband dragging, interactive DX labels with KiwiSDR-compatible database
+loading, keyboard shortcuts, and more. To try it live, visit
+[palomar-sdr.com](http://palomar-sdr.com/).
+
 A web interface for [ka9q-radio](https://github.com/ka9q/ka9q-radio),
 originally by John Melton G0ORX. This fork adds the W1EUJ overlay UI and
 an admin dashboard.
