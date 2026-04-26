@@ -444,7 +444,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     <table>
       <tr><td>Space</td><td>Pause/resume spectrum</td></tr>
       <tr><td>c</td><td>Cycle colormap</td></tr>
-      <tr><td>&uarr; / &darr;</td><td>Shift baseline</td></tr>
+      <tr><td>&uarr; / &darr;</td><td>Shift spectrum baseline</td></tr>
       <tr><td>&larr; / &rarr;</td><td>Adjust amplitude range</td></tr>
       <tr><td>s / w</td><td>Spectrum height &plusmn;</td></tr>
       <tr><td>+ / &minus;</td><td>FFT averaging &plusmn;</td></tr>
@@ -1283,6 +1283,19 @@ window.addEventListener('keydown', e => {
     if (e.key === 'c' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
         $('p-sp-col').click();
+    }
+
+    // ── Shift spectrum baseline (min_db ±5) ──────────────────────
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        const sp = radio.spectrum;
+        if (sp) {
+            sp.min_db += (e.key === 'ArrowUp') ? -5 : 5;
+            if (sp.updateAxes) sp.updateAxes();
+            sf = sp.min_db;
+            $('p-spmin').value = sf; $('p-spminv').textContent = sf;
+            buildDbLabels();
+        }
     }
 
     // ── Fullscreen toggle ────────────────────────────────────────
