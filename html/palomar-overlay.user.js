@@ -686,11 +686,13 @@ function updateMarker() {
     const lo = centerKhz - spanKhz / 2;
     const x = ((tuneKhz - lo) / spanKhz) * W;
 
-    // Read level from averaged FFT bins
+    // Read level from averaged FFT bins using overlay's own view position
+    // (spectrum.hz_to_bin uses spectrum.js's center/span which can lag)
     const bins = sp.binsAverage;
     let dBstr = '';
     if (bins && bins.length) {
-        const bin = sp.hz_to_bin(tuneKhz * 1000);
+        const frac = (tuneKhz - lo) / spanKhz;
+        const bin = Math.floor(frac * bins.length);
         if (bin >= 0 && bin < bins.length) dBstr = '  ' + bins[bin].toFixed(1) + ' dB';
     }
 
