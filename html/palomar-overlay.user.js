@@ -1283,6 +1283,36 @@ function sendCenter(khz) {
     radio.setCenter(khz);
 }
 
+// ── Prevent frequency-scale canvas from triggering click-to-tune ──
+// The scale canvas (p-sc) sits in p-tune-wrap between the spectrum and
+// waterfall. Without this guard, clicking anywhere on the frequency
+// scale bar tunes the radio — which conflicts with:
+//   (a) passband adjustment (accidental retune near the cursor), and
+//   (b) future DX-label click actions.
+//
+// We block mousedown and touchstart on p-sc in the CAPTURE phase with
+// stopImmediatePropagation() so the event never reaches the overlay's
+// drag/tune handler registered in the forEach loop below.
+//
+// This does NOT affect:
+//   - Passband drag handles: they use 'pointerdown' on separate elements
+//     (p-pb-lo, p-pb-hi) — a different event type, unblocked.
+//   - Passband reset: uses 'dblclick' on p-sc-wrap (the parent), not p-sc.
+//   - Split-handle drag: uses mousedown/touchstart on p-tune-wrap, not p-sc.
+//   - Wheel zoom/pan: uses 'wheel' event, unblocked.
+//
+// MOBILE NOTE: touchstart is also blocked here. When adding mobile touch
+// gesture support, the touch handlers on the waterfall/spectrum canvases
+// will work normally — only the scale canvas is excluded. If DX-label
+// tap-to-tune is added later, attach those handlers to the DX label
+// elements directly (inside p-dx-bar), not to p-sc.
+$('p-sc').addEventListener('mousedown', e => {
+    e.stopImmediatePropagation();
+}, true);
+$('p-sc').addEventListener('touchstart', e => {
+    e.stopImmediatePropagation();
+}, true);
+
 [$('p-wf'),$('p-sp'),$('p-sc')].forEach(cv => {
     cv.style.pointerEvents = 'all'; cv.style.cursor = 'crosshair';
 
