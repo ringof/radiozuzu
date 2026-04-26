@@ -996,9 +996,10 @@ function waitForReady() {
             if (Array.isArray(arr) && arr.length) {
                 DX = arr.map(parseDxEntry);
                 _dxKey = '';
+                console.log('[Palomar] dx.json loaded:', DX.length, 'entries');
                 buildDX();
             }
-        }).catch(() => {});
+        }).catch(e => console.error('[Palomar] dx.json failed:', e));
         requestAnimationFrame(loop);
     }
 }
