@@ -1279,6 +1279,12 @@ window.addEventListener('keydown', e => {
         togglePause();
     }
 
+    // ── Cycle colormap ───────────────────────────────────────────
+    if (e.key === 'c' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        $('p-sp-col').click();
+    }
+
     // ── Fullscreen toggle ────────────────────────────────────────
     // We fullscreen #p-overlay (not spectrum.js's canvas) because the
     // overlay is a fixed sibling that covers the entire viewport.
