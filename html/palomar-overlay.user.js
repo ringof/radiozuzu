@@ -1385,9 +1385,13 @@ window.addEventListener('keydown', e => {
         doAutoscale();
     }
     if (e.key === 'i' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        console.log('[key] i → zoomIn');
         radio.zoomIn();
     }
     if (e.key === 'o' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        console.log('[key] o → zoomOut');
         radio.zoomOut();
     }
 
