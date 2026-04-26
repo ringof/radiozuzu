@@ -873,7 +873,7 @@ function buildDX() {
         lb.style.pointerEvents = 'auto';
         lb.addEventListener('click', e => {
             e.stopPropagation();
-            if (entry.m) rjsMode(entry.m);
+            if (entry.m && entry.m !== curMode) rjsMode(entry.m);
             rjsTune(entry.f);
             _dxKey = '';
             buildDX();
