@@ -1386,11 +1386,17 @@ window.addEventListener('keydown', e => {
     }
     if (e.key === 'i' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
-        radio.zoomIn();
+        try {
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+                ws.send('Z:+:' + tuneKhz.toFixed(3));
+        } catch(e) {}
     }
     if (e.key === 'o' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
-        radio.zoomOut();
+        try {
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+                ws.send('Z:-:' + tuneKhz.toFixed(3));
+        } catch(e) {}
     }
     if (e.key === 'z' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
