@@ -987,6 +987,18 @@ function waitForReady() {
         buildDbLabels();
         resize();
         applyPresets();
+        // Load external DX database (KiwiSDR dx.json format)
+        fetch('/dx.json').then(r => {
+            if (!r.ok) throw new Error(r.status);
+            return r.json();
+        }).then(data => {
+            const arr = Array.isArray(data) ? data : (data && data.dx);
+            if (Array.isArray(arr) && arr.length) {
+                DX = arr.map(parseDxEntry);
+                _dxKey = '';
+                buildDX();
+            }
+        }).catch(() => {});
         requestAnimationFrame(loop);
     }
 }
