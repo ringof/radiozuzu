@@ -1394,7 +1394,10 @@ window.addEventListener('keydown', e => {
     }
     if (e.key === 'z' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
-        radio.zoomCenter();
+        try {
+            if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
+                ws.send('Z:c:' + tuneKhz.toFixed(3));
+        } catch(e) {}
     }
 
     // ── Fullscreen toggle ────────────────────────────────────────
