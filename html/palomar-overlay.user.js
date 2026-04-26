@@ -872,6 +872,9 @@ function buildDX() {
             rjsTune(entry.f);
             _dxKey = '';
             buildDX();
+            console.log('[DX click]', entry.l, entry.f, 'tuneKhz=', tuneKhz);
+            setTimeout(() => console.log('[DX +100ms] tuneKhz=', tuneKhz, 'active=', document.querySelector('.p-dxt.active')?.textContent), 100);
+            setTimeout(() => console.log('[DX +500ms] tuneKhz=', tuneKhz, 'active=', document.querySelector('.p-dxt.active')?.textContent), 500);
         });
         if (entry.n) lb.title = `${(entry.f/1000).toFixed(3)} MHz \u2014 ${entry.n}`;
         if (Math.abs(entry.f - tuneKhz) < 0.5) lb.classList.add('active');
