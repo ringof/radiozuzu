@@ -178,7 +178,11 @@ OV.innerHTML = `
 }
 #p-tune-wrap{position:relative;flex-shrink:0;cursor:ns-resize}
 #p-dx-bar{height:18px;background:#f5f5f5;border-bottom:1px solid #ccc;position:relative;overflow:hidden}
-#p-tunelbl{position:absolute;top:1px;font-size:10px;font-weight:bold;color:#000;white-space:nowrap;pointer-events:none;z-index:4;transform:translateX(-50%)}
+#p-mk{position:absolute;z-index:10;pointer-events:none;white-space:nowrap;
+  color:#e8c000;font:bold 12px Consolas,monospace;
+  text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000}
+#p-mk-line{position:absolute;z-index:9;pointer-events:none;
+  width:1px;top:0;bottom:0;border-left:1px dashed #e8c000;opacity:.6}
 #p-sc-wrap{height:30px;position:relative;background:linear-gradient(to bottom,#c8c8c8,#e8e8e8,#c8c8c8)}
 #p-sc{display:block;width:100%;height:100%}
 .p-pb-cf{position:absolute;top:0;height:100%;background:rgba(80,200,80,.18);z-index:1;pointer-events:none}
@@ -296,9 +300,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 </style>
 
 <div id="p-rf">
-  <div id="p-sp-wrap"><div id="p-sp-db"></div><canvas id="p-sp"></canvas></div>
+  <div id="p-sp-wrap"><div id="p-sp-db"></div><canvas id="p-sp"></canvas><div id="p-mk"></div><div id="p-mk-line"></div></div>
   <div id="p-tune-wrap">
-    <span id="p-tunelbl"></span>
     <div id="p-dx-bar"></div>
     <div id="p-sc-wrap">
       <canvas id="p-sc"></canvas>
@@ -674,14 +677,32 @@ function drawScale() {
         scCtx.fillStyle = '#444';
         scCtx.fillText(step<1?(f*1000).toFixed(0):f.toFixed(step<.1?2:step<1?1:0), x, H-2);
     }
-    updateTuneLabel();
+    updateMarker();
 }
-function updateTuneLabel() {
-    const W = $('p-dx-bar').clientWidth; if (!W) return;
-    const lo = centerKhz-spanKhz/2, x = ((tuneKhz-lo)/spanKhz)*W;
-    const lbl = $('p-tunelbl');
-    lbl.textContent = (tuneKhz/1000).toFixed(3)+' MHz';
-    lbl.style.left = x+'px';
+// ── Spectrum marker — frequency + level readout at tuned freq ────
+function updateMarker() {
+    const sp = radio.spectrum; if (!sp) return;
+    const W = $('p-sp').clientWidth; if (!W) return;
+    const lo = centerKhz - spanKhz / 2;
+    const x = ((tuneKhz - lo) / spanKhz) * W;
+
+    // Read level from averaged FFT bins
+    const bins = sp.binsAverage;
+    let dBstr = '';
+    if (bins && bins.length) {
+        const bin = sp.hz_to_bin(tuneKhz * 1000);
+        if (bin >= 0 && bin < bins.length) dBstr = '  ' + bins[bin].toFixed(1) + ' dB';
+    }
+
+    // Position label — flip to left side of line when near right edge
+    const mk = $('p-mk');
+    const right = x > W * 0.7;
+    mk.style.left  = right ? '' : (x + 6) + 'px';
+    mk.style.right = right ? (W - x + 6) + 'px' : '';
+    mk.style.top = '4px';
+    mk.textContent = '\u25b8 ' + (tuneKhz / 1000).toFixed(3) + ' MHz' + dBstr;
+
+    $('p-mk-line').style.left = x + 'px';
 }
 
 function updatePB() {
@@ -968,6 +989,7 @@ function loop() {
         renderFromSource();
     }
     frame++;
+    if (frame%4===0)  updateMarker();
     if (frame%8===0)  tickSM();
     if (frame%60===0) updateClock();
     requestAnimationFrame(loop);
