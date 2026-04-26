@@ -1509,7 +1509,7 @@ $('p-sc').addEventListener('touchstart', e => {
         _zoomAccum += dy;
 
         // Immediate trigger for large deltas (mouse wheel notch)
-        if (Math.abs(_zoomAccum) >= 40) {
+        if (Math.abs(_zoomAccum) >= 60) {
             if (_zoomAccum > 0) radio.zoomOut();
             else radio.zoomIn();
             _zoomAccum = 0;
@@ -1519,11 +1519,11 @@ $('p-sc').addEventListener('touchstart', e => {
         // Deferred trigger for small deltas (trackpad pinch)
         if (!_zoomTimer) {
             _zoomTimer = setTimeout(() => {
-                if (_zoomAccum > 5) radio.zoomOut();
-                else if (_zoomAccum < -5) radio.zoomIn();
+                if (_zoomAccum > 20) radio.zoomOut();
+                else if (_zoomAccum < -20) radio.zoomIn();
                 _zoomAccum = 0;
                 _zoomTimer = null;
-            }, 120);
+            }, 200);
         }
     }, { passive: false });
 });
