@@ -202,7 +202,8 @@ OV.innerHTML = `
 }
 .p-dxl{position:absolute;width:1px;background:#000;top:0;bottom:0}
 .p-dxt{position:absolute;font-size:10px;padding:1px 3px;border:1px solid #000;
-  border-radius:3px;background:rgba(255,255,220,.85);color:#000;white-space:nowrap;top:1px}
+  border-radius:3px;background:rgba(255,255,220,.85);color:#000;white-space:nowrap;top:1px;cursor:pointer}
+.p-dxt.active{background:#e8c000;color:#000;border-color:#a08000}
 #p-panel{
   position:fixed;right:0;top:0;bottom:0;
   display:flex;flex-direction:row;
@@ -855,15 +856,23 @@ function parseDxEntry(e) {
 let _dxKey = '';
 function buildDX() {
     const bar = $('p-dx-bar'), W = bar.clientWidth;
-    const key = `${centerKhz}|${spanKhz}|${W}`;
+    const key = `${centerKhz}|${spanKhz}|${W}|${tuneKhz}`;
     if (key === _dxKey) return;
     _dxKey = key;
     bar.innerHTML = '';
     const lo = centerKhz-spanKhz/2;
-    for (const {f,l} of DX) {
-        const x = ((f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
+    for (const entry of DX) {
+        const x = ((entry.f-lo)/spanKhz)*W; if (x<2||x>W-2) continue;
         const ln = document.createElement('div'); ln.className='p-dxl'; ln.style.left=x+'px'; bar.appendChild(ln);
-        const lb = document.createElement('div'); lb.className='p-dxt'; lb.style.left=(x+2)+'px'; lb.textContent=l; bar.appendChild(lb);
+        const lb = document.createElement('div'); lb.className='p-dxt'; lb.style.left=(x+2)+'px'; lb.textContent=entry.l;
+        lb.style.pointerEvents = 'auto';
+        lb.addEventListener('click', e => {
+            e.stopPropagation();
+            if (entry.m) rjsMode(entry.m);
+            rjsTune(entry.f);
+        });
+        if (Math.abs(entry.f - tuneKhz) < 0.5) lb.classList.add('active');
+        bar.appendChild(lb);
     }
 }
 
