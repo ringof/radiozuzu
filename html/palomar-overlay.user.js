@@ -1392,6 +1392,10 @@ window.addEventListener('keydown', e => {
         e.stopPropagation(); e.preventDefault();
         radio.zoomOut();
     }
+    if (e.key === 'z' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        radio.zoomCenter();
+    }
 
     // ── Fullscreen toggle ────────────────────────────────────────
     // We fullscreen #p-overlay (not spectrum.js's canvas) because the
