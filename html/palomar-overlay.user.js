@@ -1261,6 +1261,31 @@ $('p-help').addEventListener('click', () => toggleHelp(false));
 $('p-help-inner').addEventListener('click', () => toggleHelp(false));
 window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && helpOpen) { toggleHelp(false); e.stopPropagation(); }
+
+    // ── Fullscreen toggle ────────────────────────────────────────
+    // We fullscreen #p-overlay (not spectrum.js's canvas) because the
+    // overlay is a fixed sibling that covers the entire viewport.
+    // Fullscreening spectrum's #waterfall canvas shows a black screen
+    // since the overlay isn't a child of that canvas.
+    //
+    // requestFullscreen() MUST be called from a user-gesture handler
+    // (keydown/click) — it will fail from console, setTimeout, or
+    // promise callbacks. That's why this lives in the keydown handler.
+    //
+    // We stopPropagation + preventDefault to block spectrum.js's own
+    // 'f' handler (radio.js line 1287) from fullscreening #waterfall.
+    //
+    // TODO Phase 2: spectrum.js gates keyboard shortcuts behind
+    // this.fullscreen — those won't work until we either set
+    // spectrum.fullscreen = true or reimplement them here.
+    if (e.key === 'f' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        if (!document.fullscreenElement) {
+            $('p-overlay').requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen().catch(() => {});
+        }
+    }
 }, true);
 
 // ── Mouse / trackpad interactions on overlay canvases ─────────────
