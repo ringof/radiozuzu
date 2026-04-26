@@ -932,10 +932,13 @@ function loop() {
             const rKhz = radio.freqKhz;
             const cKhz = radio.centerKhz;
             const sKhz = radio.spanKhz;
-            // After rjsTune, ignore stale server echoes until confirmed or 300ms
-            if (_rjsTarget && Math.abs(rKhz - _rjsTarget) > 0.5
-                           && Date.now() - _rjsTargetTime < 300) {
-                // stale echo — skip frequency sync, still sync center/span
+            // After rjsTune, ignore stale server echoes until confirmed or 300ms.
+            // Wait at least 50ms before checking confirmation to avoid clearing
+            // on our own write (rjsTune sets frequencyHz = target).
+            const _rjsAge = Date.now() - _rjsTargetTime;
+            if (_rjsTarget && _rjsAge < 300
+                           && (_rjsAge < 50 || Math.abs(rKhz - _rjsTarget) > 0.5)) {
+                // suppress freq sync; still sync center/span
                 if (Math.abs(cKhz-centerKhz)>.5 || Math.abs(sKhz-spanKhz)>.5) {
                     centerKhz = cKhz; spanKhz = sKhz; buildDX();
                 }
