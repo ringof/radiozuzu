@@ -835,8 +835,8 @@ let DX=[
 ];
 
 const KIWI_MODE = {
-    'USB':'usb', 'LSB':'lsb', 'AM':'am', 'SAM':'sam',
-    'CW':'cwu', 'CWN':'cwu', 'FM':'fm', 'IQ':'iq',
+    'USB':'usb', 'LSB':'lsb', 'AM':'am', 'AMN':'am', 'SAM':'sam',
+    'SAU':'sam', 'SAL':'sam', 'CW':'cwu', 'CWN':'cwu', 'FM':'fm', 'IQ':'iq',
     'FT8':'usb', 'FT4':'usb', 'RTTY':'usb', 'PSK':'usb',
     'FSK':'usb', 'MSK':'usb', 'FAX':'usb',
 };
