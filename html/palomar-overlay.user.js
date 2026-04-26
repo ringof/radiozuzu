@@ -1282,24 +1282,20 @@ function setSlidersAndRange(newMax, newMin){
     }
     buildDbLabels();
 }
-$('p-sp-auto').onclick = function(){
-    const bins = radio.bins;
-    if (!bins || bins.length === 0) return;
-    // Skip first/last 20 bins — edge roll-off produces misleading extremes
-    let bMin = Infinity, bMax = -Infinity;
-    const lo = Math.min(20, bins.length), hi = Math.max(lo, bins.length - 20);
-    for (let i = lo; i < hi; i++) {
-        if (bins[i] < bMin) bMin = bins[i];
-        if (bins[i] > bMax) bMax = bins[i];
-    }
-    // Round to 5 dB grid with margin so traces aren't pinned to edges
-    const newMax = Math.ceil((bMax + 5) / 5) * 5;
-    const newMin = Math.floor((bMin - 5) / 5) * 5;
-    setSlidersAndRange(
-        Math.max(-160, Math.min(0, newMax)),
-        Math.max(-160, Math.min(0, newMin))
-    );
-};
+function doAutoscale() {
+    const sp = radio.spectrum;
+    if (!sp || typeof sp.forceAutoscale !== 'function') return;
+    sp.forceAutoscale(100, false);
+    // Sync overlay sliders after spectrum.js finishes autoscaling
+    setTimeout(() => {
+        if (typeof sp.max_db === 'number') { sc = sp.max_db; $('p-spmax').value = sc; $('p-spmaxv').textContent = Math.round(sc); }
+        if (typeof sp.min_db === 'number') { sf = sp.min_db; $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf); }
+        if (typeof sp.wf_max_db === 'number') { $('p-wfmax').value = sp.wf_max_db; $('p-wfmaxv').textContent = Math.round(sp.wf_max_db); }
+        if (typeof sp.wf_min_db === 'number') { $('p-wfmin').value = sp.wf_min_db; $('p-wfminv').textContent = Math.round(sp.wf_min_db); }
+        buildDbLabels();
+    }, 500);
+}
+$('p-sp-auto').onclick = doAutoscale;
 
 $('p-vis').onclick = ()=>{
     const c = $('p-panel').classList.toggle('collapsed');
@@ -1383,6 +1379,10 @@ window.addEventListener('keydown', e => {
             $('p-spmin').value = sf; $('p-spminv').textContent = sf;
             buildDbLabels();
         }
+    }
+
+    if (e.key === 'a' && document.activeElement !== $('p-fnum')) {
+        doAutoscale();
     }
 
     // ── Fullscreen toggle ────────────────────────────────────────
