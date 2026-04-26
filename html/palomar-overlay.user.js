@@ -932,9 +932,19 @@ function loop() {
             const rKhz = radio.freqKhz;
             const cKhz = radio.centerKhz;
             const sKhz = radio.spanKhz;
-            if (rKhz > 0 && (Math.abs(rKhz-tuneKhz)>.5 || Math.abs(cKhz-centerKhz)>.5 || Math.abs(sKhz-spanKhz)>.5)) {
-                tuneKhz = rKhz; centerKhz = cKhz; spanKhz = sKhz;
-                updateFDisp(); buildDX();
+            // After rjsTune, ignore stale server echoes until confirmed or 300ms
+            if (_rjsTarget && Math.abs(rKhz - _rjsTarget) > 0.5
+                           && Date.now() - _rjsTargetTime < 300) {
+                // stale echo — skip frequency sync, still sync center/span
+                if (Math.abs(cKhz-centerKhz)>.5 || Math.abs(sKhz-spanKhz)>.5) {
+                    centerKhz = cKhz; spanKhz = sKhz; buildDX();
+                }
+            } else {
+                _rjsTarget = 0;
+                if (rKhz > 0 && (Math.abs(rKhz-tuneKhz)>.5 || Math.abs(cKhz-centerKhz)>.5 || Math.abs(sKhz-spanKhz)>.5)) {
+                    tuneKhz = rKhz; centerKhz = cKhz; spanKhz = sKhz;
+                    updateFDisp(); buildDX();
+                }
             }
             const rMode = radio.mode;
             if (rMode && rMode !== curMode) {
@@ -957,8 +967,12 @@ function loop() {
 // ═══════════════════════════════════════════════════════════════════
 // CONTROLS
 // ═══════════════════════════════════════════════════════════════════
+let _rjsTarget = 0;        // target freq (kHz) awaiting server confirmation
+let _rjsTargetTime = 0;    // when rjsTune was called (safety fallback)
 function rjsTune(khz) {
     tuneKhz = khz;
+    _rjsTarget = khz;
+    _rjsTargetTime = Date.now();
     // Send F: command directly via websocket — mirrors spectrum.js click handler.
     try {
         if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN)
