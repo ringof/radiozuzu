@@ -1517,7 +1517,8 @@ $('p-sc').addEventListener('touchstart', e => {
     // ── mousedown: start drag ────────────────────────────────────
     cv.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
-        drag = { sx: e.clientX, sc0: centerKhz, moved: false, cv: cv };
+        drag = { sx: e.clientX, sy: e.clientY, sc0: centerKhz, sf0: sf,
+                 moved: false, axis: null, cv: cv };
         clearTimeout(_scrollPanTimer);
         cv.style.cursor = 'grabbing';
     });
@@ -1585,10 +1586,32 @@ window.addEventListener('mousemove', e => {
     if (!drag) return;
     const r  = drag.cv.getBoundingClientRect();
     const dx = e.clientX - drag.sx;
-    if (!drag.moved && Math.abs(dx) > 3) {
-        drag.moved = true; _panSuppressSync = true;
+    const dy = e.clientY - drag.sy;
+
+    // Lock drag axis after a small movement threshold
+    if (!drag.axis && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        // On spectrum canvas: vertical drag shifts baseline
+        if (drag.cv === $('p-sp') && Math.abs(dy) > Math.abs(dx)) {
+            drag.axis = 'v';
+        } else {
+            drag.axis = 'h';
+        }
+        drag.moved = true;
+        if (drag.axis === 'h') _panSuppressSync = true;
     }
-    if (drag.moved) {
+
+    if (drag.axis === 'v') {
+        // Vertical drag on spectrum: shift baseline proportionally
+        // Dragging up = raise floor (brighter), dragging down = lower floor
+        const dR = sc - sf;
+        const dbShift = (dy / r.height) * dR;
+        const newSf = drag.sf0 + dbShift;
+        sf = newSf;
+        const sp = radio.spectrum;
+        if (sp) { sp.min_db = sf; if (sp.updateAxes) sp.updateAxes(); }
+        $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf);
+        buildDbLabels();
+    } else if (drag.axis === 'h') {
         centerKhz = drag.sc0 - (dx / r.width) * spanKhz;
         const now = Date.now();
         if (now - _lastPanSend >= PAN_SEND_MS) {
@@ -1611,6 +1634,41 @@ window.addEventListener('mouseup', e => {
     drag.cv.style.cursor = 'crosshair';
     drag = null;
 });
+
+// ── Two-finger vertical spread on spectrum: adjust amplitude range ──
+// Spread apart = expand range (raise max_db), pinch = compress (lower max_db).
+(function(){
+    const sp = $('p-sp');
+    let startDist = null, startMax = null;
+
+    sp.addEventListener('touchstart', e => {
+        if (e.touches.length === 2) {
+            startDist = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
+            startMax = sc;
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    sp.addEventListener('touchmove', e => {
+        if (e.touches.length === 2 && startDist !== null) {
+            const dist = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
+            // Each 30px of spread/pinch = 5 dB
+            const delta = Math.round((dist - startDist) / 30) * 5;
+            const newMax = startMax + delta;
+            if (newMax !== sc) {
+                sc = newMax;
+                const s = radio.spectrum;
+                if (s) { s.max_db = sc; if (s.updateAxes) s.updateAxes(); }
+                $('p-spmax').value = sc; $('p-spmaxv').textContent = Math.round(sc);
+                buildDbLabels();
+            }
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    sp.addEventListener('touchend', () => { startDist = null; startMax = null; });
+    sp.addEventListener('touchcancel', () => { startDist = null; startMax = null; });
+})();
 
 window.addEventListener('resize', resize);
 updateClock(); setInterval(updateClock,1000);
