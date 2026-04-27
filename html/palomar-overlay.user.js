@@ -1538,7 +1538,7 @@ $('p-sc').addEventListener('touchstart', e => {
     // ── wheel: zoom or horizontal pan ────────────────────────────
     cv.addEventListener('wheel', e => {
         e.preventDefault();
-        // Horizontal two-finger scroll → pan
+        // Horizontal two-finger scroll → pan (all canvases)
         if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5
                        && Math.abs(e.deltaX) > 2) {
             const r = cv.getBoundingClientRect();
@@ -1550,6 +1550,19 @@ $('p-sc').addEventListener('touchstart', e => {
                 _panSuppressSync = false;
             }, 120);
             buildDX(); drawScale(); updatePB();
+            return;
+        }
+
+        // On spectrum canvas: vertical scroll shifts baseline instead of zooming
+        if (cv === $('p-sp')) {
+            let dy = e.deltaY;
+            if (e.deltaMode === 1) dy *= 30;
+            const step = dy > 0 ? 2 : -2;
+            sf += step;
+            const sp = radio.spectrum;
+            if (sp) { sp.min_db = sf; if (sp.updateAxes) sp.updateAxes(); }
+            $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf);
+            buildDbLabels();
             return;
         }
 
@@ -1637,11 +1650,12 @@ window.addEventListener('mouseup', e => {
 
 // ── Two-finger vertical spread on spectrum: adjust amplitude range ──
 // Spread apart = expand range (raise max_db), pinch = compress (lower max_db).
+// Attached to p-sp-wrap (the container) so overlay children don't block touches.
 (function(){
-    const sp = $('p-sp');
+    const wrap = $('p-sp-wrap');
     let startDist = null, startMax = null;
 
-    sp.addEventListener('touchstart', e => {
+    wrap.addEventListener('touchstart', e => {
         if (e.touches.length === 2) {
             startDist = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
             startMax = sc;
@@ -1649,7 +1663,7 @@ window.addEventListener('mouseup', e => {
         }
     }, { passive: false });
 
-    sp.addEventListener('touchmove', e => {
+    wrap.addEventListener('touchmove', e => {
         if (e.touches.length === 2 && startDist !== null) {
             const dist = Math.abs(e.touches[0].clientY - e.touches[1].clientY);
             // Each 30px of spread/pinch = 5 dB
@@ -1666,8 +1680,8 @@ window.addEventListener('mouseup', e => {
         }
     }, { passive: false });
 
-    sp.addEventListener('touchend', () => { startDist = null; startMax = null; });
-    sp.addEventListener('touchcancel', () => { startDist = null; startMax = null; });
+    wrap.addEventListener('touchend', () => { startDist = null; startMax = null; });
+    wrap.addEventListener('touchcancel', () => { startDist = null; startMax = null; });
 })();
 
 window.addEventListener('resize', resize);
