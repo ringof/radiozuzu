@@ -1383,6 +1383,19 @@ window.addEventListener('keydown', e => {
         }
     }
 
+    // ── Adjust spectrum range (max_db ±5) ──────────────────────
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        const sp = radio.spectrum;
+        if (sp) {
+            sp.max_db += (e.key === 'ArrowRight') ? -5 : 5;
+            if (sp.updateAxes) sp.updateAxes();
+            sc = sp.max_db;
+            $('p-spmax').value = sc; $('p-spmaxv').textContent = sc;
+            buildDbLabels();
+        }
+    }
+
     if (e.key === 'a' && document.activeElement !== $('p-fnum')) {
         doAutoscale();
     }
