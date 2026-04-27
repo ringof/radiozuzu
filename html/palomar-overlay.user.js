@@ -404,8 +404,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 
     <hr class="p-hr">
     <div class="p-s">Options</div>
-    <div class="br"><button class="cb">DX labels</button><button class="cb">Memories</button></div>
-    <div class="br" style="margin-top:3px"><button class="cb">Ext ▼</button><button class="cb" id="p-help-btn">Help</button></div>
+    <!-- TODO: DX labels, Memories, Ext buttons (not yet wired) -->
+    <div class="br"><button class="cb" id="p-help-btn" style="width:60%;min-width:80px">Help</button></div>
 
     <div style="flex:1;min-height:8px"></div>
 
