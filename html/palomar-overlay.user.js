@@ -484,7 +484,7 @@ const scC = $('p-sc'),  scCtx = scC.getContext('2d');
 let tuneKhz = 14225, centerKhz = 15000, spanKhz = 20000;
 let sc = -30, sf = -130;
 let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, helpOpen = false, smT = 0.35;
-let maxH = null, _pbOverride = null, _pbKey = '';
+let maxH = null, maxHold = true, _pbOverride = null, _pbKey = '';
 const ZOOMS = [30000,20000,15000,10000,5000,2000,1000,500,200,100];
 const PB = {usb:[0,2.8],lsb:[-2.8,0],am:[-4,4],sam:[-4,4],cwu:[0,.5],cwl:[-.5,0],fm:[-6,6],iq:[-5,5]};
 
@@ -608,18 +608,18 @@ function drawSpec(bins) {
         pts[x] = bins[b];
     }
 
-    // Decay max-hold
-    for (let x = 0; x < W; x++) {
-        if (pts[x] > maxH[x]) maxH[x] = pts[x];
-        else maxH[x] = maxH[x]*.997 + pts[x]*.003;
+    // Max-hold trace (dim orange-red) — toggled by 'm' key
+    if (maxHold) {
+        for (let x = 0; x < W; x++) {
+            if (pts[x] > maxH[x]) maxH[x] = pts[x];
+            else maxH[x] = maxH[x]*.997 + pts[x]*.003;
+        }
+        spCtx.beginPath(); spCtx.strokeStyle = 'rgba(180,80,50,.4)'; spCtx.lineWidth = 1;
+        for (let x = 0; x < W; x++) {
+            const y = H - Math.max(0, Math.min(H, ((maxH[x]-sf)/dR)*H));
+            x === 0 ? spCtx.moveTo(x,y) : spCtx.lineTo(x,y);
+        } spCtx.stroke();
     }
-
-    // Max-hold trace (dim orange-red)
-    spCtx.beginPath(); spCtx.strokeStyle = 'rgba(180,80,50,.4)'; spCtx.lineWidth = 1;
-    for (let x = 0; x < W; x++) {
-        const y = H - Math.max(0, Math.min(H, ((maxH[x]-sf)/dR)*H));
-        x === 0 ? spCtx.moveTo(x,y) : spCtx.lineTo(x,y);
-    } spCtx.stroke();
 
     // Filled area + live trace
     spCtx.beginPath(); spCtx.moveTo(0, H);
@@ -1405,24 +1405,14 @@ window.addEventListener('keydown', e => {
                 ws.send('Z:c:' + tuneKhz.toFixed(3));
         } catch(e) {}
     }
-    // Toggle max-hold trace. spectrum.js binds 'm' to toggleMaxHold()
-    // but that method is never defined — so we intercept here and call
-    // setMaxHold() directly, which toggles the boolean and clears the
-    // accumulated binsMax/binsMin arrays for a fresh trace.
-    // We also sync two hidden host-page elements:
-    //   #max_hold  — button whose text reflects on/off state
-    //   #check_max — checkbox that gates whether the trace is drawn
-    //                (maxHold tracks bins; check_max controls rendering)
+    // Toggle the overlay's own max-hold trace (dim orange-red line).
+    // Clears accumulated data so a fresh trace starts on re-enable.
+    // spectrum.js has its own maxHold but renders on the hidden host
+    // canvas — this controls the overlay's visible trace instead.
     if (e.key === 'm' && document.activeElement !== $('p-fnum')) {
         e.stopPropagation(); e.preventDefault();
-        const sp = radio.spectrum;
-        if (sp && typeof sp.setMaxHold === 'function') {
-            sp.setMaxHold(!sp.maxHold);
-            const el = document.getElementById('max_hold');
-            if (el) el.textContent = sp.maxHold ? 'Turn hold off' : 'Turn hold on';
-            const ck = document.getElementById('check_max');
-            if (ck && sp.maxHold) ck.checked = true;
-        }
+        maxHold = !maxHold;
+        if (!maxHold) maxH = null;   // clear so re-enable starts fresh
     }
 
     // ── Fullscreen toggle ────────────────────────────────────────
