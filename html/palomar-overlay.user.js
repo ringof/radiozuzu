@@ -429,8 +429,11 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     <table>
       <tr><td>Click waterfall</td><td>Tune to frequency</td></tr>
       <tr><td>Drag on waterfall</td><td>Pan spectrum</td></tr>
-      <tr><td>Scroll / pinch</td><td>Zoom in/out</td></tr>
+      <tr><td>Scroll / pinch on waterfall</td><td>Zoom in/out</td></tr>
       <tr><td>Horiz. two-finger scroll</td><td>Pan left/right</td></tr>
+      <tr><td>Drag on spectrum</td><td>Vertical: shift baseline; horizontal: pan</td></tr>
+      <tr><td>Scroll on spectrum</td><td>Shift baseline</td></tr>
+      <tr><td>Pinch on spectrum</td><td>Adjust amplitude range</td></tr>
       <tr><td>Drag green passband edges</td><td>Adjust filter bandwidth</td></tr>
       <tr><td>Double-click freq scale</td><td>Reset passband to default</td></tr>
       <tr><td>Click frequency display</td><td>Type frequency in kHz</td></tr>
