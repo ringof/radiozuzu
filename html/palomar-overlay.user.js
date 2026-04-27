@@ -1405,6 +1405,25 @@ window.addEventListener('keydown', e => {
                 ws.send('Z:c:' + tuneKhz.toFixed(3));
         } catch(e) {}
     }
+    // Toggle max-hold trace. spectrum.js binds 'm' to toggleMaxHold()
+    // but that method is never defined — so we intercept here and call
+    // setMaxHold() directly, which toggles the boolean and clears the
+    // accumulated binsMax/binsMin arrays for a fresh trace.
+    // We also sync two hidden host-page elements:
+    //   #max_hold  — button whose text reflects on/off state
+    //   #check_max — checkbox that gates whether the trace is drawn
+    //                (maxHold tracks bins; check_max controls rendering)
+    if (e.key === 'm' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        const sp = radio.spectrum;
+        if (sp && typeof sp.setMaxHold === 'function') {
+            sp.setMaxHold(!sp.maxHold);
+            const el = document.getElementById('max_hold');
+            if (el) el.textContent = sp.maxHold ? 'Turn hold off' : 'Turn hold on';
+            const ck = document.getElementById('check_max');
+            if (ck && sp.maxHold) ck.checked = true;
+        }
+    }
 
     // ── Fullscreen toggle ────────────────────────────────────────
     // We fullscreen #p-overlay (not spectrum.js's canvas) because the
