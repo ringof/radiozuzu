@@ -1371,7 +1371,7 @@ window.addEventListener('keydown', e => {
         e.stopPropagation(); e.preventDefault();
         const sp = radio.spectrum;
         if (sp) {
-            sp.min_db += (e.key === 'ArrowUp') ? -5 : 5;
+            sp.min_db = Math.max(-150, sp.min_db + ((e.key === 'ArrowUp') ? -5 : 5));
             if (sp.updateAxes) sp.updateAxes();
             sf = sp.min_db;
             $('p-spmin').value = sf; $('p-spminv').textContent = sf;
@@ -1553,15 +1553,25 @@ $('p-sc').addEventListener('touchstart', e => {
             return;
         }
 
-        // On spectrum canvas: vertical scroll shifts baseline instead of zooming
+        // On spectrum canvas: pinch = amplitude range, scroll = baseline
         if (cv === $('p-sp')) {
             let dy = e.deltaY;
             if (e.deltaMode === 1) dy *= 30;
-            const step = dy > 0 ? 2 : -2;
-            sf += step;
-            const sp = radio.spectrum;
-            if (sp) { sp.min_db = sf; if (sp.updateAxes) sp.updateAxes(); }
-            $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf);
+            if (e.ctrlKey) {
+                // Trackpad pinch/spread → adjust amplitude range (max_db)
+                const step = dy > 0 ? -2 : 2;
+                sc += step;
+                const sp = radio.spectrum;
+                if (sp) { sp.max_db = sc; if (sp.updateAxes) sp.updateAxes(); }
+                $('p-spmax').value = sc; $('p-spmaxv').textContent = Math.round(sc);
+            } else {
+                // Vertical scroll → shift baseline (min_db), floor at -150 dB
+                const step = dy > 0 ? 2 : -2;
+                sf = Math.max(-150, sf + step);
+                const sp = radio.spectrum;
+                if (sp) { sp.min_db = sf; if (sp.updateAxes) sp.updateAxes(); }
+                $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf);
+            }
             buildDbLabels();
             return;
         }
@@ -1618,8 +1628,7 @@ window.addEventListener('mousemove', e => {
         // Dragging up = raise floor (brighter), dragging down = lower floor
         const dR = sc - sf;
         const dbShift = (dy / r.height) * dR;
-        const newSf = drag.sf0 + dbShift;
-        sf = newSf;
+        sf = Math.max(-150, drag.sf0 + dbShift);
         const sp = radio.spectrum;
         if (sp) { sp.min_db = sf; if (sp.updateAxes) sp.updateAxes(); }
         $('p-spmin').value = sf; $('p-spminv').textContent = Math.round(sf);
