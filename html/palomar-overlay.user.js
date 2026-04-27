@@ -450,6 +450,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
       <tr><td>a</td><td>Autoscale</td></tr>
       <tr><td>s / w</td><td>Spectrum height &plusmn;</td></tr>
       <tr><td>m</td><td>Toggle max hold</td></tr>
+      <tr><td>p</td><td>Toggle frequency/level marker</td></tr>
       <tr><td>c</td><td>Cycle colormap</td></tr>
       <tr><td>+ / &minus;</td><td>FFT averaging &plusmn;</td></tr>
       <tr><td>Space</td><td>Pause/resume spectrum</td></tr>
@@ -483,7 +484,7 @@ const scC = $('p-sc'),  scCtx = scC.getContext('2d');
 let tuneKhz = 14225, centerKhz = 15000, spanKhz = 20000;
 let sc = -30, sf = -130;
 let paused = false, curMode = 'usb', diagOpen = false, spOpen = false, helpOpen = false, smT = 0.35;
-let maxH = null, maxHold = true, _pbOverride = null, _pbKey = '';
+let maxH = null, maxHold = true, markerOn = true, _pbOverride = null, _pbKey = '';
 const ZOOMS = [30000,20000,15000,10000,5000,2000,1000,500,200,100];
 const PB = {usb:[0,2.8],lsb:[-2.8,0],am:[-4,4],sam:[-4,4],cwu:[0,.5],cwl:[-.5,0],fm:[-6,6],iq:[-5,5]};
 
@@ -680,7 +681,13 @@ function drawScale() {
     updateMarker();
 }
 // ── Spectrum marker — frequency + level readout at tuned freq ────
+// Toggled by 'p' key. Shows tuned frequency + dB level from FFT bins.
 function updateMarker() {
+    if (!markerOn) {
+        $('p-mk').textContent = '';
+        $('p-mk-line').style.left = '-9999px';
+        return;
+    }
     const sp = radio.spectrum; if (!sp) return;
     const W = $('p-sp').clientWidth; if (!W) return;
     const lo = centerKhz - spanKhz / 2;
@@ -1427,6 +1434,11 @@ window.addEventListener('keydown', e => {
         e.stopPropagation(); e.preventDefault();
         maxHold = !maxHold;
         if (!maxHold) maxH = null;   // clear so re-enable starts fresh
+    }
+    // Toggle peak frequency/amplitude marker
+    if (e.key === 'p' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        markerOn = !markerOn;
     }
     // Grow/shrink spectrum vs waterfall split by 5% steps
     if (e.key === 's' && document.activeElement !== $('p-fnum')) {
