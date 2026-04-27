@@ -440,22 +440,18 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
     <h4>Keyboard</h4>
     <table>
       <tr><td>Shift + &larr; / &rarr;</td><td>Step frequency down/up</td></tr>
-      <tr><td>f</td><td>Toggle fullscreen</td></tr>
-      <tr><td>Escape</td><td>Close help / cancel entry</td></tr>
-    </table>
-
-    <h4>Keyboard (fullscreen only)</h4>
-    <table>
-      <tr><td>Space</td><td>Pause/resume spectrum</td></tr>
-      <tr><td>c</td><td>Cycle colormap</td></tr>
       <tr><td>&uarr; / &darr;</td><td>Shift spectrum baseline</td></tr>
       <tr><td>&larr; / &rarr;</td><td>Adjust amplitude range</td></tr>
-      <tr><td>s / w</td><td>Spectrum height &plusmn;</td></tr>
-      <tr><td>+ / &minus;</td><td>FFT averaging &plusmn;</td></tr>
-      <tr><td>m</td><td>Toggle max hold</td></tr>
-      <tr><td>z</td><td>Center on tuned frequency</td></tr>
       <tr><td>i / o</td><td>Zoom in/out</td></tr>
+      <tr><td>z</td><td>Center on tuned frequency</td></tr>
       <tr><td>a</td><td>Autoscale</td></tr>
+      <tr><td>s / w</td><td>Spectrum height &plusmn;</td></tr>
+      <tr><td>m</td><td>Toggle max hold</td></tr>
+      <tr><td>c</td><td>Cycle colormap</td></tr>
+      <tr><td>+ / &minus;</td><td>FFT averaging &plusmn;</td></tr>
+      <tr><td>Space</td><td>Pause/resume spectrum</td></tr>
+      <tr><td>f</td><td>Toggle fullscreen</td></tr>
+      <tr><td>Escape</td><td>Close help / cancel entry</td></tr>
     </table>
 
     <h4>Panel Controls</h4>
