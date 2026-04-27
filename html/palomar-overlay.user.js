@@ -1180,12 +1180,14 @@ $('p-wfmax').oninput = function(){ const v=+this.value; $('p-wfmaxv').textConten
 $('p-wfmin').oninput = function(){ const v=+this.value; $('p-wfminv').textContent=v; const s=radio.spectrum; if(s) s.wf_min_db=v; };
 $('p-spmax').oninput = function(){ sc=+this.value; $('p-spmaxv').textContent=sc; const s=radio.spectrum; if(s) s.max_db=sc; buildDbLabels(); };
 $('p-spmin').oninput = function(){ sf=+this.value; $('p-spminv').textContent=sf; const s=radio.spectrum; if(s) s.min_db=sf; buildDbLabels(); };
-$('p-spratio').oninput = function(){
-    const v=+this.value; $('p-spratiov').textContent=v+'%';
-    $('p-sp-wrap').style.flex=v; $('p-wf-wrap').style.flex=100-v;
-    const s=radio.spectrum; if(s && s.setSpectrumPercent) s.setSpectrumPercent(v);
+function setSpecSplit(v) {
+    v = Math.max(0, Math.min(100, v));
+    $('p-spratio').value = v; $('p-spratiov').textContent = v+'%';
+    $('p-sp-wrap').style.flex = v; $('p-wf-wrap').style.flex = 100-v;
+    const s = radio.spectrum; if (s && s.setSpectrumPercent) s.setSpectrumPercent(v);
     resize();
-};
+}
+$('p-spratio').oninput = function(){ setSpecSplit(+this.value); };
 // ── Split-handle drag (resize spectrum / waterfall) ─────────────
 // ── Split drag on tune-wrap (resize spectrum / waterfall) ────────
 // The tune-wrap bar (DX labels + frequency scale, ~48px tall) acts
@@ -1413,6 +1415,15 @@ window.addEventListener('keydown', e => {
         e.stopPropagation(); e.preventDefault();
         maxHold = !maxHold;
         if (!maxHold) maxH = null;   // clear so re-enable starts fresh
+    }
+    // Grow/shrink spectrum vs waterfall split by 5% steps
+    if (e.key === 's' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        setSpecSplit(+$('p-spratio').value + 5);
+    }
+    if (e.key === 'w' && document.activeElement !== $('p-fnum')) {
+        e.stopPropagation(); e.preventDefault();
+        setSpecSplit(+$('p-spratio').value - 5);
     }
 
     // ── Fullscreen toggle ────────────────────────────────────────
