@@ -1,16 +1,15 @@
-# ka9q-web (W1EUJ fork)
+# Radio Zuzu
+
+WARNING: Non-functional at this time, check back in Early June 2026
 
 ![Palomar SDR Overlay](latest.png)
 
-Active development is focused on the overlay UI — a KiwiSDR-inspired interface
-built on top of ka9q-web that adds spectrum click-to-tune, waterfall display,
-passband dragging, interactive DX labels with KiwiSDR-compatible database
-loading, keyboard shortcuts, and more. To try it live, visit
-[palomar-sdr.com](http://palomar-sdr.com/).
+Active development is focused on transitioning what was an overlay (KiwiSDR-inspired interface
+built on top of ka9q-web) into a full-fledged modular web front end for ka9q-radio and coordinated 
+clients, including that mamanged through SigMonD, 
 
-A web interface for [ka9q-radio](https://github.com/ka9q/ka9q-radio),
-originally by John Melton G0ORX. This fork adds the W1EUJ overlay UI and
-an admin dashboard.
+The US adds passband dragging, interactive DX labels with KiwiSDR-compatible database
+loading, keyboard shortcuts, and more. 
 
 ## What's in this repo
 
