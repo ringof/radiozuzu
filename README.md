@@ -1,483 +1,96 @@
 # Radio Zuzu
 
-WARNING: Non-functional at this time, check back in Early June 2026
+> **Status — In transition.** Radio Zuzu is being rebuilt as a
+> self-contained Python web app on top of upstream
+> [ka9q-radio](https://github.com/ka9q/ka9q-radio) and
+> [ka9q-python](https://github.com/mijahauan/ka9q-python). The previous
+> ka9q-web C server and JavaScript overlay have been moved into
+> [`legacy/`](legacy/) and are no longer the development target.
+>
+> The full plan, phases, and gating questions live in
+> [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md). Non-functional during
+> the transition; check back in early June 2026.
 
-![Palomar SDR Overlay](latest.png)
+![Palomar SDR Overlay](legacy/latest.png)
 
-Active development is focused on transitioning what was an overlay (KiwiSDR-inspired interface
-built on top of ka9q-web) into a full-fledged modular web front end for ka9q-radio and coordinated 
-clients, including that mamanged through SigMonD, 
+## Where things are
 
-The US adds passband dragging, interactive DX labels with KiwiSDR-compatible database
-loading, keyboard shortcuts, and more. 
-
-## What's in this repo
-
-| Component | Description |
+| Path | What it is |
 |---|---|
-| `ka9q-web.c` | C web server — serves the radio UI over HTTP/WebSocket |
-| `html/` | Frontend: `radio.html`, `radio.js`, spectrum, S-meter, CSS |
-| `w1euj.js` | W1EUJ overlay — custom UI injected into `radio.html` |
-| `admin/` | Python (Flask) admin dashboard — connection tracking, GeoIP |
+| [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md) | The transition plan — server stack, frontend, audio path, ka9q-python tasks, risks. |
+| [`docs/UPSTREAM.md`](docs/UPSTREAM.md) | Parity checklist against `wa2n-code/ka9q-web` (the upstream we're replacing). One row per WS command, server frame, UI behavior, and op feature; ticked off as the new app lands each. |
+| [`docs/overlay-bugs.md`](docs/overlay-bugs.md) | Short historical record of legacy-overlay bugs and how the rebuild closes them. |
+| [`legacy/OVERLAY-INJECTION.md`](legacy/OVERLAY-INJECTION.md), [`legacy/TEST-MATRIX.md`](legacy/TEST-MATRIX.md) | Archived reference for the nginx-injection architecture and the 39-test cross-browser matrix from the legacy stack. |
+| [`config/`](config/) | `radiod` configuration (`radiod@rx888-web.conf`). Shared with both legacy and new builds. |
+| `ka9q-radio/` | Submodule, tracking upstream `main`. |
+| `server/` *(coming Phase 1)* | New FastAPI app that bridges the browser to `radiod` via `ka9q-python`. |
+| `web/` *(coming Phase 1)* | Plain-JS frontend, promoted from the palomar overlay. |
+| [`legacy/`](legacy/) | The previous ka9q-web C server, the original `radio.html` / `radio.js`, the Flask admin dashboard, and the systemd units that run them. Preserved so existing deployments keep working during the cutover. |
 
----
+## What changed in Phase 0
 
-## Production Install
+This commit is a layout-only refactor. No source files were edited; they
+were `git mv`'d so history follows them.
 
-For a full build-from-source install (ka9q-radio, Onion framework, ka9q-web),
-see the [upstream build instructions](#upstream-build-instructions) at the
-bottom of this file.
+- `ka9q-web.c`, the legacy `Makefile`, the `html/` and `admin/` trees,
+  the `ka9q-web*.service` units, `update-w1euj.sh`, `radiod.commit`, and
+  `latest.png` moved into `legacy/`.
+- Design and ops notes consolidated into `docs/MODERNIZATION.md` and
+  `docs/UPSTREAM.md`; the historical overlay test matrix and
+  injection-architecture doc moved under `legacy/` for reference.
+- `legacy/Makefile` was patched in two places so the legacy build still
+  works from inside the `legacy/` directory: `KA9Q_RADIO_DIR` now points
+  at `../ka9q-radio/src`, and the `install-config` target reads from
+  `../config/`.
+- `.gitmodules` now tracks ka9q-radio `main` so future
+  `git submodule update --remote ka9q-radio` pulls upstream changes.
 
-Once ka9q-web is installed and running:
+## Decisions locked in for the rebuild
 
-```bash
-# Start the radio backend
-sudo systemctl start radiod@rx888-web
+| Topic | Decision |
+|---|---|
+| Server | FastAPI + uvicorn, single Python process |
+| Cutover | Fork: archive C/JS legacy under `legacy/`, build new app at the repo root |
+| Frontend | Promote `palomar-overlay.user.js` to first-class UI; drop `radio.html` / `radio.js` / `overlay.js` |
+| Audio | Opus over WS (forwarded as-is when `radiod` is configured for Opus on the channel) |
+| Multi-radiod | Supported — server holds a `RadiodControl` registry keyed by host |
+| Frontend tooling | Plain ES modules, no bundler |
 
-# Start ka9q-web (production, port 8081)
-sudo systemctl start ka9q-web
-```
+See [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md) for phase-by-phase
+detail and the open risks list.
 
-Open `http://<host>:8081` in a browser.
+## Building the legacy stack
 
-For local development and testing, see [local-dev-test.md](local-dev-test.md).
-
----
-
-## nginx Reverse Proxy and Connection Limiting
-
-In production, nginx sits in front of ka9q-web as a reverse proxy to
-provide per-user and global connection limits. Cloudflare Tunnel
-(cloudflared) handles TLS and public routing — nginx runs on localhost
-between cloudflared and ka9q-web.
-
-The traffic path is:
-
-```
-User → Cloudflare Tunnel → cloudflared (localhost) → nginx (:8080) → ka9q-web (:8073)
-```
-
-### Install nginx
-
-Ubuntu / Debian:
-```bash
-sudo apt install nginx
-```
-
-RHEL / CentOS / Fedora:
-```bash
-sudo dnf install nginx
-```
-
-### Configuration
-
-Remove the default site (it listens on port 80 and will conflict):
+If you need to keep an existing deployment working during the cutover,
+the C server and the JS overlay still build from `legacy/`:
 
 ```bash
-sudo rm /etc/nginx/sites-enabled/default
+git submodule update --init   # pull ka9q-radio sources
+cd legacy
+make ka9q-web-dev             # dev build, serves html/ from CWD on :8082
 ```
 
-Create `/etc/nginx/sites-available/sdr`:
-
-```nginx
-# Real client IP from Cloudflare
-set_real_ip_from 127.0.0.1;
-real_ip_header   CF-Connecting-IP;
-
-# Per-IP connection limit
-limit_conn_zone $binary_remote_addr zone=sdr_conn:10m;
-limit_conn_log_level warn;
-
-# Global connection limit (all users share one pool)
-limit_conn_zone "global" zone=sdr_global:1m;
-
-server {
-    listen 8080;
-    server_name _;
-
-    location / {
-        # Per-IP: max simultaneous connections per user
-        limit_conn sdr_conn 3;
-
-        # Global: max simultaneous connections total
-        limit_conn sdr_global 20;
-
-        limit_conn_status 429;
-
-        proxy_pass http://localhost:8073;
-
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        # Keep idle WebSockets alive
-        proxy_read_timeout  3600s;
-        proxy_send_timeout  3600s;
-
-        # Pass real IP to ka9q-web
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header CF-Connecting-IP  $http_cf_connecting_ip;
-    }
-}
-```
-
-Enable the site, test, and reload:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/sdr /etc/nginx/sites-enabled/sdr
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-Then point your Cloudflare Tunnel to `http://localhost:8080`.
-
-### Verifying it works
-
-```bash
-# Confirm nginx is listening on 8080
-sudo ss -tlnp | grep 8080
-
-# Watch traffic flow in real time
-sudo tail -f /var/log/nginx/access.log
-```
-
-Load the site in a browser while watching the access log. You should see
-requests appear with real client IPs (not 127.0.0.1), confirming that
-both the proxy and the `set_real_ip_from` / `CF-Connecting-IP` config
-are working.
-
-### Tuning the limits
-
-| Directive | What it controls | Default above |
-|-----------|-----------------|---------------|
-| `limit_conn sdr_conn N` | Max simultaneous connections per IP | 3 |
-| `limit_conn sdr_global N` | Max simultaneous connections total | 20 |
-
-A single browser tab opens one WebSocket plus a handful of HTTP
-requests, so `limit_conn sdr_conn 3` allows a couple of tabs per user.
-The global limit protects the server from being overwhelmed regardless of
-how many distinct IPs connect. Any connection beyond either limit
-receives a 429 status.
-
-### Without Cloudflare Tunnel (direct / LAN)
-
-If you're not using Cloudflare Tunnel, remove the `set_real_ip_from` and
-`real_ip_header` directives, switch to port 80, and use `X-Real-IP` /
-`X-Forwarded-For` instead:
-
-```nginx
-limit_conn_zone $binary_remote_addr zone=sdr_conn:10m;
-limit_conn_zone "global" zone=sdr_global:1m;
-limit_conn_log_level warn;
-
-server {
-    listen 80;
-    server_name _;
-
-    location / {
-        limit_conn sdr_conn 3;
-        limit_conn sdr_global 20;
-        limit_conn_status 429;
-
-        proxy_pass http://localhost:8073;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header X-Real-IP       $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header Host            $host;
-        proxy_read_timeout  3600s;
-        proxy_send_timeout  3600s;
-    }
-}
-```
-
----
-
-## Developer Setup: Side-by-Side Instances
-
-Run your development build alongside production on a different port. Both
-join the same multicast group, so they receive identical streams. Open two
-browser tabs and compare old vs new in real time.
-
-| | Production | Development |
-|---|---|---|
-| Binary | `/usr/local/sbin/ka9q-web` | `./ka9q-web-dev` |
-| Port | 8081 | 8082 |
-| Resources | `/usr/local/share/ka9q-web/html/` | `./html/` |
-| Service | `ka9q-web.service` | `ka9q-web-dev.service` |
-
-### Prerequisites
-
-The dev build links against object files from ka9q-radio. This repo
-includes ka9q-radio as a git submodule, so the source is already present
-after a recursive clone:
-
-```bash
-git clone --recursive https://github.com/ringof/ka9q-web.git
-cd ka9q-web
-```
-
-If you already have the repo, initialize the submodule:
-
-```bash
-git submodule update --init
-```
-
-The Makefile defaults to `KA9Q_RADIO_DIR=ka9q-radio/src` (the submodule).
-To use a different ka9q-radio source tree (e.g. a local checkout), override
-on the command line:
-
-```bash
-make ka9q-web-dev KA9Q_RADIO_DIR=/path/to/ka9q-radio/src
-```
-
-### Build and run
-
-```bash
-make ka9q-web-dev
-
-# Install the dev service (one time)
-sudo cp ka9q-web-dev.service /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# Start both
-sudo systemctl start ka9q-web          # production on :8081
-sudo systemctl start ka9q-web-dev      # development on :8082
-```
-
-Then open:
-- `http://<host>:8081` — production (original code)
-- `http://<host>:8082` — development (your changes)
-
-### Rebuild cycle
-
-```bash
-make ka9q-web-dev
-sudo systemctl restart ka9q-web-dev
-```
-
-The dev binary sets `RESOURCES_BASE_DIR=.`, so it reads `html/` from the
-working directory. Edit JS/CSS/HTML in place and reload the browser.
-
-### Note on control interaction
-
-Both instances send control commands (tuning, mode) to the same multicast
-group. If you tune on the dev instance, production listeners will see the
-change too. This is fine for development; just be aware of it during live
-comparisons.
-
----
-
-## Admin Dashboard
-
-A standalone Python service that polls ka9q-web's `/status` page, tracks
-connections in SQLite, and performs GeoIP lookups.
-
-### Quick start (developer-local)
-
-```bash
-cd admin
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-cp admin.conf.example admin.conf
-```
-
-Edit `admin.conf` — set `password` and `secret_key`:
-
-```ini
-[admin]
-password = pick-something
-ka9q_url = http://localhost:8082/status
-db_path = ./admin.db
-secret_key = any-random-string
-```
-
-```bash
-KA9Q_ADMIN_CONF=admin.conf venv/bin/python admin.py
-```
-
-Open `http://localhost:8080`.
-
-### Production install
-
-```bash
-# Set up the admin venv in the source tree
-cd admin
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-
-# Create DB directory
-sudo mkdir -p /var/lib/ka9q-web
-sudo chown radio:radio /var/lib/ka9q-web
-
-# Configure
-cp admin.conf.example admin.conf
-# edit admin.conf — set password and secret_key
-
-# Install and start the service
-sudo cp ka9q-admin.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now ka9q-admin
-```
-
-### Admin files
-
-| File | Purpose |
-|------|---------|
-| `admin/admin.py` | Flask app, status poller, GeoIP, SQLite |
-| `admin/admin.html` | Dashboard template (Jinja2) |
-| `admin/admin.css` | Dark theme matching the W1EUJ overlay |
-| `admin/admin.conf.example` | Default configuration |
-| `admin/ka9q-admin.service` | systemd unit |
-| `admin/requirements.txt` | Python dependencies |
-
-### Configuration reference
-
-All settings live in the `[admin]` section of `admin.conf`:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `password` | `changeme` | Dashboard login password |
-| `ka9q_url` | `http://localhost:8082/status` | ka9q-web status page URL |
-| `port` | `8080` | Dashboard listen port |
-| `poll_interval` | `5` | Seconds between status polls |
-| `db_path` | `/var/lib/ka9q-web/admin.db` | SQLite database path |
-| `history_limit` | `500` | Max disconnected sessions kept |
-| `secret_key` | `change-this-...` | Flask session signing key |
-
----
-
-## Open Issues
-
-See [issue.md](issue.md) for tracked issues, currently:
-- Real client IP not visible behind Cloudflare Tunnel (fix requires C change)
-
----
-
-## Custom Modes
-
-ka9q-web supports custom demodulation modes via `presets.conf`
-(`/usr/local/share/ka9q-radio/presets.conf`). Five extra mode slots are
-available: WUSB, WLSB, USER1, USER2, USER3. Each must have a matching
-lowercase tag in `presets.conf`.
-
-Example — WUSB with a wider 3.5 kHz high filter:
-
-```ini
-[wusb]
-demod = linear
-samprate = 12k
-low =  +50.0
-high = +3.5k
-pll = no
-square = no
-mono = yes
-shift = 0
-envelope = no
-conj = no
-hang-time = 1.1
-recovery-rate = 20
-```
-
-The mode tag in `presets.conf` must be lowercase. Sample rates in ka9q-web
-are 24k for FM, 12k for all other modes including I/Q.
-
----
-
-## Upstream Build Instructions
-
-These are the original G0ORX instructions for building ka9q-web from
-source on a fresh system.
-
-### 1. Build and install ka9q-radio
-
-```bash
-git clone https://github.com/ka9q/ka9q-radio.git
-```
-
-Detailed instructions: https://github.com/ka9q/ka9q-radio/blob/main/docs/INSTALL.md
-
-### 2. Install Onion framework prerequisites
-
-The Onion framework requires GnuTLS and libgcrypto for WebSocket SHA1:
-
-Ubuntu 22.04 / 24.04:
-```bash
-sudo apt install libgnutls28-dev libgcrypt20-dev
-```
-
-Debian 12 (Bookworm):
-```bash
-sudo apt install libgnutls28-dev libgcrypt-dev
-```
-
-RHEL / CentOS / Fedora:
-```bash
-sudo dnf install gnutls-devel libgcrypt-devel
-```
-
-### 3. Build and install the Onion framework
-
-Full build:
-```bash
-git clone https://github.com/davidmoreno/onion
-cd onion && mkdir build && cd build
-cmake ..
-```
-
-Light build (fewer dependencies):
-```bash
-cmake -DONION_USE_PAM=false -DONION_USE_PNG=false -DONION_USE_JPEG=false \
-      -DONION_USE_XML2=false -DONION_USE_SYSTEMD=false -DONION_USE_SQLITE3=false \
-      -DONION_USE_REDIS=false -DONION_USE_GC=false -DONION_USE_TESTS=false \
-      -DONION_EXAMPLES=false -DONION_USE_BINDINGS_CPP=false ..
-```
-
-Verify that cmake output contains `-- SSL support is compiled in.`, then:
-
-```bash
-make
-sudo make install
-sudo ldconfig
-```
-
-### 4. Build and install ka9q-web
-
-```bash
-git clone --recursive https://github.com/ringof/ka9q-web.git
-cd ka9q-web
-make
-sudo make install
-sudo make install-config
-```
-
-The `--recursive` flag pulls in ka9q-radio as a submodule. If you want to
-build against a different ka9q-radio source tree, override on the command
-line:
-
-```bash
-make KA9Q_RADIO_DIR=/path/to/ka9q-radio/src
-```
+The systemd units in `legacy/` reference absolute install paths
+(`/usr/local/sbin/ka9q-web`, `/home/wsprdaemon/wsprdaemon/ka9q-web/`) and
+are unchanged from before the move; if your install lives elsewhere, edit
+them as you would have before.
 
 ## References
 
 - [Phil Karn KA9Q — ka9q-radio](https://github.com/ka9q/ka9q-radio)
+- [mijahauan — ka9q-python](https://github.com/mijahauan/ka9q-python)
 - [John Melton G0ORX — ka9q-radio fork](https://github.com/g0orx/ka9q-radio)
 - [Scott Newell — ka9q-web (upstream)](https://github.com/scottnewell/ka9q-web)
 - [Onion web framework](https://github.com/davidmoreno/onion)
 
 ## Copyright and License
 
-This project is licensed under the
-[GNU General Public License v3.0](LICENSE) or later.
+Licensed under the [GNU General Public License v3.0](LICENSE) or later.
 
 - ka9q-radio: (C) Phil Karn, KA9Q
 - ka9q-web: (C) 2023-2025 John Melton, G0ORX (N6LYT)
 - ka9q-web contributions: (C) 2025 WA2N, WA2ZKD (this fork's upstream)
-- W1EUJ overlay and admin dashboard: (C) 2024-2026 W1EUJ
+- Radio Zuzu / W1EUJ overlay / admin dashboard: (C) 2024-2026 W1EUJ
 - spectrum.js: (C) 2019 Jeppe Ledet-Pedersen (MIT license)
 - colormap.js: (C) 2013-2014 Andras Retzler, HA7ILM (OpenWebRX, GPL v3);
   (C) 2015-2024 John Seamons, ZL4VO/KF6VO
