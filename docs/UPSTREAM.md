@@ -3,10 +3,15 @@
 Tracks feature parity between the new Radio Zuzu (FastAPI + ka9q-python)
 and the upstream C `ka9q-web` we're replacing.
 
-**Reference pin:** [`wa2n-code/ka9q-web`](https://github.com/wa2n-code/ka9q-web)
-@ `88b28ee9` (2026-03-25).
+**Reference pins:**
 
-Re-fetch monthly during the transition. When you bump the pin, add a row
+| Project | Role | Pinned at | Date |
+|---|---|---|---|
+| [`wa2n-code/ka9q-web`](https://github.com/wa2n-code/ka9q-web) | Feature parity reference (the C/JS stack we're replacing) | `88b28ee9` | 2026-03-25 |
+| [`mijahauan/ka9q-python`](https://github.com/mijahauan/ka9q-python) | Runtime dependency (`server/pyproject.toml`) | **v3.12.0** ([`db2aba9`](https://github.com/mijahauan/ka9q-python/commit/db2aba92bb444ea39872a0313e231bf9977d94fd)) | 2026-05-07 |
+| [`ka9q/ka9q-radio`](https://github.com/ka9q/ka9q-radio) | Submodule, tracking `main` | (floating) | — |
+
+Re-fetch monthly during the transition. When you bump a pin, add a row
 under "Pin history" at the bottom and update any new features into the
 tables.
 
@@ -20,7 +25,7 @@ equivalent and to the `RadiodControl` call it routes through.
 
 | Upstream | New JSON message | `RadiodControl` call | Status |
 |---|---|---|---|
-| `S:` (start spectrum) | `{type:"spectrum_start"}` | `set_spectrum(...)` + poll loop | ☐ |
+| `S:` (start spectrum) | `{type:"spectrum_start"}` | `SpectrumStream(...)` (v3.12.0+) | ☐ |
 | `A:START` / `A:STOP` (audio) | `{type:"audio", action:"start"\|"stop"}` | `RTPRecorder.start()` / `stop()` | ☐ |
 | `E:<low>:<high>` (filter edges) | `{type:"set_filter", low_hz, high_hz}` | `set_filter(low_edge=, high_edge=)` | ☐ |
 | `G:<n>` (spectrum average) | `{type:"set_spectrum_avg", n}` | `set_spectrum(avg=n)` | ☐ |
@@ -81,6 +86,7 @@ equivalent and to the `RadiodControl` call it routes through.
 
 ## Pin history
 
-| Date | wa2n-code/ka9q-web pin | Notes |
-|---|---|---|
-| 2026-05-07 | `88b28ee9` | Initial reference pin alongside Phase 0. |
+| Date | Project | Pin | Notes |
+|---|---|---|---|
+| 2026-05-07 | wa2n-code/ka9q-web | `88b28ee9` | Initial reference pin alongside Phase 0. |
+| 2026-05-07 | mijahauan/ka9q-python | v3.12.0 (`db2aba9`) | Adds `SpectrumStatus.bin_data` / `bin_byte_data` / `bin_power_db` and the `SpectrumStream` class — resolves R1 (the gating ka9q-python question for Phase 2). |

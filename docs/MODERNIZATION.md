@@ -98,14 +98,18 @@ configured radiods' active SSRCs.
 
 ### Phase 2 — Spectrum stream
 
-- `spectrum.py` task per WS session: `RadiodControl.request_powers(...)`
-  + `RadiodControl.poll(...)` on a 100 ms tick, settable via `SetPoll`.
+- `spectrum.py` task per WS session: use ka9q-python's
+  [`SpectrumStream`](https://github.com/mijahauan/ka9q-python) (added in
+  v3.12.0) — channel creation, periodic polling, SSRC filtering, and
+  retune are all built in. Per-frame callback receives `ChannelStatus`
+  with `status.spectrum.bin_power_db` already populated (dB values
+  decoded from either `BIN_DATA` float32 or `BIN_BYTE_DATA` uint8 form).
 - WS frame: `{type:"spectrum", center_hz, bin_width_hz, base_db, step_db,
   bins:[...]}`.
 - Wire palomar's spectrum/waterfall path to consume the new frame.
 
 **Acceptance:** browser shows a live spectrum sourced through
-`ka9q-python`.
+`SpectrumStream`.
 
 ### Phase 3 — Audio (Opus)
 
@@ -163,8 +167,14 @@ ticked.
 
 ## ka9q-python coverage (gating Phase 4)
 
+**Pinned version:** `mijahauan/ka9q-python` ≥ **v3.12.0**
+([`db2aba9`](https://github.com/mijahauan/ka9q-python/commit/db2aba92bb444ea39872a0313e231bf9977d94fd),
+2026-05-07) — adds spectrum bin decoding (`bin_data`, `bin_byte_data`,
+`bin_power_db`) plus a high-level `SpectrumStream` class. **R1 is
+resolved.**
+
 After cross-referencing `mijahauan/ka9q-python`'s `docs/API_REFERENCE.md`,
-~85 % of the original ten-item task list is **already implemented**:
+the original ten-item task list is **fully covered**:
 
 - Control: `set_frequency`, `set_preset`, `set_filter` (covers
   LOW_EDGE/HIGH_EDGE/kaiser_beta), `set_shift_frequency` (SHIFT_FREQUENCY),
@@ -188,16 +198,23 @@ After cross-referencing `mijahauan/ka9q-python`'s `docs/API_REFERENCE.md`,
   + `restore_interval_sec`, replacing the upstream watchdog logic.
   `MultiStream` provides shared-socket fan-out. `rtp_to_wallclock()`
   helper is present.
+- **Spectrum (new in v3.12.0):** `SpectrumStream` handles channel
+  creation, periodic polling, SSRC filtering, retune via
+  `set_frequency()`, and context-manager lifecycle. Each callback
+  receives a `ChannelStatus` with `spectrum.bin_data`,
+  `spectrum.bin_byte_data`, and the convenience
+  `spectrum.bin_power_db` property already populated. Closes both the
+  critical "where is the bin array" question (item 1) and the workflow
+  documentation question (item 2).
 
-### Remaining ka9q-python items
+### Remaining ka9q-python items (all optional)
 
-To file as issues against `mijahauan/ka9q-python`:
+The two critical items are resolved upstream. The remainder are
+nice-to-haves and do not block any phase:
 
 | # | Item | Severity |
 |---|---|---|
-| 1 | **Confirm or expose `bin_data` (the float[] array of per-bin powers) on `SpectrumStatus` / `ChannelStatus.get_field("spectrum.bin_data")`.** The documented `SpectrumStatus` fields are all metadata; the actual spectrum trace array is not visible in the public API. Without this, the Python server cannot render a spectrum trace. | **Critical — blocks Phase 2.** |
-| 2 | Document the spectrum-poll workflow: do consumers call `set_spectrum()` once and then `poll_status()` in a loop? An example in `examples/` would close the question. | Documentation. |
-| 3 | A `stop_spectrum(spec_ssrc)` helper that wraps the upstream "tune to 0 Hz × 3" idiom, or a docstring on `remove_channel()` clarifying it's the right call for a SPECT2_DEMOD channel. | Convenience. |
+| 3 | A `stop_spectrum(spec_ssrc)` helper that wraps the upstream "tune to 0 Hz × 3" idiom, or a docstring on `remove_channel()` clarifying it's the right call for a SPECT2_DEMOD channel. | Optional — `SpectrumStream`'s context manager likely handles teardown. |
 | 4 | Surface `Frontend.samples`, `overranges`, `samp_since_over` if available in the TLV stream. Cosmetic — used for diagnostics. | Optional. |
 | 5 | A loopback fake-radiod test fixture and TLV golden files — useful for radiozuzu CI. | Optional. |
 
@@ -231,7 +248,7 @@ cutover.
 
 | ID | Risk | Status |
 |---|---|---|
-| R1 | TLV coverage in ka9q-python. | **Mostly resolved** — ~85 % already in the public API. Blocked only on confirming `SpectrumStatus.bin_data` array exposure (item 1 above). Gate Phase 2 on that single item. |
+| R1 | TLV coverage in ka9q-python. | **Resolved** — ka9q-python v3.12.0 (`db2aba9`, 2026-05-07) adds `SpectrumStatus.bin_data` / `bin_byte_data` / `bin_power_db` and a `SpectrumStream` class. Phase 2 is unblocked. Pin `ka9q-python >= 3.12.0` in `server/pyproject.toml`. |
 | R2 | Per-channel Opus output on rx888 / radiod for SSB/AM/FM at the rates we use; IQ and the wide-bin spectrum paths may need PCM. | Open — verify on real hardware before committing Phase 3 design. |
 | R3 | WS audio framing. Server framing and `pcm-player.js` change together; PROTOCOL.md will define `[u32 ts_delta][u16 seq][u16 opus_len][bytes]`. | Accepted; resolved by joint change in Phase 3. |
 | R4 | Multi-radiod scope. | **Resolved**: supported from day one. `radio.py` holds a `RadiodControl` registry keyed by status host. |
