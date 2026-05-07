@@ -1,5 +1,15 @@
-# Submodule lives at the repo root, one level up from this legacy/ dir.
-KA9Q_RADIO_DIR=../ka9q-radio/src
+# Legacy ka9q-web build.
+#
+# As of Phase 0.5, the radiozuzu repo no longer carries ka9q-radio as a
+# git submodule. To build this legacy target, point KA9Q_RADIO_DIR at a
+# ka9q-radio source tree you've already built. For example:
+#
+#   git clone https://github.com/ka9q/ka9q-radio.git ~/ka9q-radio
+#   make -C ~/ka9q-radio   # build the .o files we link against
+#   make ka9q-web-dev KA9Q_RADIO_DIR=~/ka9q-radio/src
+#
+# (Or, if SigMonD is installed, use the ka9q-radio tree it pulled in.)
+KA9Q_RADIO_DIR?=../ka9q-radio/src
 PREFIX=/usr/local
 
 # for production
