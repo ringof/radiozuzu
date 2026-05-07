@@ -1,4 +1,5 @@
-KA9Q_RADIO_DIR=ka9q-radio/src
+# Submodule lives at the repo root, one level up from this legacy/ dir.
+KA9Q_RADIO_DIR=../ka9q-radio/src
 PREFIX=/usr/local
 
 # for production
@@ -41,7 +42,7 @@ install: ka9q-web
 	install -m 644 -D html/* -t $(RESOURCES_BASE_DIR)/html/
 
 install-config:
-	install -b -m 644 config/* /etc/radio
+	install -b -m 644 ../config/* /etc/radio
 
 clean:
 	-rm -f ka9q-web ka9q-web-dev *.o *.d
