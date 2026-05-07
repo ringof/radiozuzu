@@ -18,6 +18,7 @@
 | Path | What it is |
 |---|---|
 | [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md) | The transition plan — server stack, frontend, audio path, ka9q-python tasks, risks. |
+| [`docs/UPSTREAM.md`](docs/UPSTREAM.md) | Parity checklist against `wa2n-code/ka9q-web` (the upstream we're replacing). One row per WS command, server frame, UI behavior, and op feature; ticked off as the new app lands each. |
 | [`docs/`](docs/) | Design, ops, and historical notes (overlay improvements, touch gestures, dev test guide, open issues). |
 | [`config/`](config/) | `radiod` configuration (`radiod@rx888-web.conf`). Shared with both legacy and new builds. |
 | `ka9q-radio/` | Submodule, tracking upstream `main`. |

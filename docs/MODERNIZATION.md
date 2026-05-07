@@ -124,17 +124,26 @@ configured radiods' active SSRCs.
 
 ### Phase 4 — Full control + admin fold-in
 
-- Implement the rest of the WS control surface against `RadiodControl`.
+- Implement the rest of the WS control surface against `RadiodControl`,
+  including post-detection audio shift (`SHIFT_FREQUENCY` →
+  `set_shift_frequency`) and the CW left/right auto-flip behavior on
+  cwu↔cwl mode transitions (frontend logic, mirrors upstream).
 - Rewrite palomar's WS calls from text protocol (`F:`, `M:`, `Z:c:`, …)
   to typed JSON. Closes `overlay-bugs.md` "frequency stutter" — one
   Python authority replaces the radio.js/server-state race.
+- Implement reliable command envelope in `docs/PROTOCOL.md`: every
+  client→server JSON message carries `seq: int` (monotonic per-client);
+  server replies `{type:"ack", seq}` for state-changing commands.
+  Mirrors upstream's `C:<clientId>:<seq>:<payload>` / `ACK:<clientId>:<seq>`
+  semantics in JSON form.
 - Fold `admin/admin.py` into FastAPI as `/admin` routes; tracking comes
   from in-process WS session state. Keep SQLite for history only.
 - Closes `issue.md` (real client IP) — read `CF-Connecting-IP` /
   `X-Forwarded-For` directly from `request.headers` with a trust list.
 
 **Acceptance:** every overlay button works; admin dashboard works;
-client IPs correct behind Cloudflare.
+client IPs correct behind Cloudflare; UPSTREAM.md parity checklist all
+ticked.
 
 ### Phase 5 — Packaging, install, docs
 
@@ -152,57 +161,77 @@ client IPs correct behind Cloudflare.
 - Band presets, DX labels toggle, Ext menu, filter edge numeric entry.
 - Touch gestures land cleanly in the rewritten app.
 
-## ka9q-python tasks (gating Phase 4)
+## ka9q-python coverage (gating Phase 4)
 
-These are filed/to-be-filed against `mijahauan/ka9q-python`:
+After cross-referencing `mijahauan/ka9q-python`'s `docs/API_REFERENCE.md`,
+~85 % of the original ten-item task list is **already implemented**:
 
-### Control commands
+- Control: `set_frequency`, `set_preset`, `set_filter` (covers
+  LOW_EDGE/HIGH_EDGE/kaiser_beta), `set_shift_frequency` (SHIFT_FREQUENCY),
+  `set_spectrum` (with bin_bw / bin_count / and likely avg / overlap /
+  window_type / shape kwargs), `poll_status`, `discover_channels` ×3
+  flavors, `tune` one-shot — all present.
+- Enums: `WindowType` (KAISER=0…HP5FT=8) is an **exact match**;
+  `DemodType.SPECT2_DEMOD = 4`; `Encoding.OPUS = 3` plus full Opus
+  parameter setters (`set_opus_bitrate`, `set_opus_dtx`,
+  `set_opus_application`, `set_opus_bandwidth`, `set_opus_fec`).
+- Status: `ChannelStatus` exposes frequency, first/second LO, low/high
+  edge, preset, baseband_power, noise_density, output_level, gps_time,
+  rtp_timesnap, plus nested `spectrum` (avg, overlap, window_type,
+  shape, base, step, fft_n, resolution_bw, noise_bw, bin_count) and
+  `frontend` (input_samprate, rf_agc, rf_atten, rf_gain, rf_level_cal,
+  if_power).
+- Streaming: `RTPRecorder(channel, on_packet=cb, pass_all_packets=True)`
+  yields `(RTPHeader, bytes, wallclock)` — **codec-agnostic Opus
+  passthrough is satisfied today** without any new ka9q-python work.
+  `ManagedStream` provides `on_stream_dropped` / `on_stream_restored`
+  + `restore_interval_sec`, replacing the upstream watchdog logic.
+  `MultiStream` provides shared-socket fan-out. `rtp_to_wallclock()`
+  helper is present.
 
-| # | Method | TLVs | Target SSRC |
-|---|---|---|---|
-| 1 | `set_filter_edges(ssrc, low_hz, high_hz)` | `LOW_EDGE` (float), `HIGH_EDGE` (float) | audio ssrc |
-| 2 | `set_spectrum_average(spec_ssrc, n)` | `SPECTRUM_AVG` (int32) | audio ssrc + 1 |
-| 3 | `set_spectrum_overlap(spec_ssrc, frac)` | `SPECTRUM_OVERLAP` (float) | audio ssrc + 1 |
-| 4 | `set_window(spec_ssrc, type, shape=None)` | `WINDOW_TYPE` (int), optional `SPECTRUM_SHAPE` (float) | audio ssrc + 1 |
-| 5 | `request_powers(spec_ssrc, center_hz, bins, bin_bw_hz)` | `DEMOD_TYPE=SPECT2_DEMOD`, `RADIO_FREQUENCY`, `BIN_COUNT`, `RESOLUTION_BW` | audio ssrc + 1 |
-| 6 | `stop_spectrum(spec_ssrc)` | `DEMOD_TYPE=SPECT2_DEMOD`, `RADIO_FREQUENCY=0`; sent **3×** | audio ssrc + 1 |
-| 7 | `discover_ssrcs()` via `poll(ssrc=0)` | first-byte=1 + `OUTPUT_SSRC=0` + `COMMAND_TAG` | n/a |
+### Remaining ka9q-python items
 
-### `WindowType` enum
+To file as issues against `mijahauan/ka9q-python`:
 
-`KAISER=0, RECT=1, BLACKMAN=2, EXACT_BLACKMAN=3, GAUSSIAN=4, HANN=5,
-HAMMING=6, BLACKMAN_HARRIS=7, HP5FT=8` (mirror `ka9q-web.c` L1322–1331).
+| # | Item | Severity |
+|---|---|---|
+| 1 | **Confirm or expose `bin_data` (the float[] array of per-bin powers) on `SpectrumStatus` / `ChannelStatus.get_field("spectrum.bin_data")`.** The documented `SpectrumStatus` fields are all metadata; the actual spectrum trace array is not visible in the public API. Without this, the Python server cannot render a spectrum trace. | **Critical — blocks Phase 2.** |
+| 2 | Document the spectrum-poll workflow: do consumers call `set_spectrum()` once and then `poll_status()` in a loop? An example in `examples/` would close the question. | Documentation. |
+| 3 | A `stop_spectrum(spec_ssrc)` helper that wraps the upstream "tune to 0 Hz × 3" idiom, or a docstring on `remove_channel()` clarifying it's the right call for a SPECT2_DEMOD channel. | Convenience. |
+| 4 | Surface `Frontend.samples`, `overranges`, `samp_since_over` if available in the TLV stream. Cosmetic — used for diagnostics. | Optional. |
+| 5 | A loopback fake-radiod test fixture and TLV golden files — useful for radiozuzu CI. | Optional. |
 
-### Status fields to expose
+## Upstream parity reference
 
-**`ChannelStatus`:** RADIO_FREQUENCY, FIRST_LO_FREQUENCY,
-SECOND_LO_FREQUENCY, LOW_EDGE, HIGH_EDGE, PRESET, IF_POWER,
-BASEBAND_POWER, NOISE_DENSITY, OUTPUT_LEVEL, BIN_COUNT, RESOLUTION_BW,
-BIN_DATA, BIN_BYTE_DATA, GPS_TIME, SPECTRUM_AVG, SPECTRUM_OVERLAP,
-WINDOW_TYPE, SPECTRUM_SHAPE, spectrum.base, spectrum.step,
-spectrum.noise_bw, clocktime.
+The legacy stack we're replacing tracks
+[wa2n-code/ka9q-web](https://github.com/wa2n-code/ka9q-web) as its
+upstream. The new app must reach feature parity with it.
 
-**`FrontendStatus`:** samprate (double), rf_agc, rf_atten, rf_gain,
-rf_level_cal, samples (uint64), overranges (uint64),
-samp_since_over (uint64).
+- **Reference pin:** `wa2n-code/ka9q-web` @ `88b28ee9` (2026-03-25).
+- Re-fetch monthly during the transition; record bumps in
+  [`UPSTREAM.md`](UPSTREAM.md), which holds the per-feature parity
+  checklist (one row per WS command + per UI feature, ticked off as
+  Phase 4 lands each).
+- Notable upstream-only features vs the snapshot in `legacy/`:
+  - `T:<shift>` WS command + `SHIFT_FREQUENCY` TLV (post-detection
+    audio shift) — already covered by `set_shift_frequency`.
+  - `C:<clientId>:<seq>:<payload>` reliable command envelope with
+    `ACK:<clientId>:<seq>` replies — reproduced as a `seq` / `{type:"ack",
+    seq}` JSON envelope in `docs/PROTOCOL.md`.
+  - CW left/right auto-flip on cwu↔cwl transitions — frontend logic,
+    rebuilt in `web/src/app.js`.
+  - `ENABLE_MONITOR` watchdog with exponential backoff — superseded by
+    `ManagedStream` recovery callbacks.
 
-### Streaming
-
-- Codec-agnostic Opus payload passthrough on `ManagedStream` (or a
-  `RawStream` flavor with `decode=False`).
-- GPS_TIME / RTP_TIMESNAP wallclock retained.
-- `MultiStream` shared-socket fan-out (verify).
-
-### Test fixtures
-
-- Loopback fake-radiod fixture for CI.
-- Recorded TLV byte-stream golden files for control commands 1–6.
+We do **not** plan to maintain a fresh fork of `ka9q-web.c`; the
+`legacy/` copy is a known-working snapshot and stays as-is during
+cutover.
 
 ## Risks (open)
 
 | ID | Risk | Status |
 |---|---|---|
-| R1 | TLV coverage in ka9q-python (the list above). | Open — gate Phase 4 on items 1–7 + status fields. |
+| R1 | TLV coverage in ka9q-python. | **Mostly resolved** — ~85 % already in the public API. Blocked only on confirming `SpectrumStatus.bin_data` array exposure (item 1 above). Gate Phase 2 on that single item. |
 | R2 | Per-channel Opus output on rx888 / radiod for SSB/AM/FM at the rates we use; IQ and the wide-bin spectrum paths may need PCM. | Open — verify on real hardware before committing Phase 3 design. |
 | R3 | WS audio framing. Server framing and `pcm-player.js` change together; PROTOCOL.md will define `[u32 ts_delta][u16 seq][u16 opus_len][bytes]`. | Accepted; resolved by joint change in Phase 3. |
 | R4 | Multi-radiod scope. | **Resolved**: supported from day one. `radio.py` holds a `RadiodControl` registry keyed by status host. |
