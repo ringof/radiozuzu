@@ -18,12 +18,12 @@
 | Path | What it is |
 |---|---|
 | [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md) | The transition plan — server stack, frontend, audio path, ka9q-python tasks, risks. |
-| [`docs/UPSTREAM.md`](docs/UPSTREAM.md) | Parity checklist against `wa2n-code/ka9q-web` (the upstream we're replacing). One row per WS command, server frame, UI behavior, and op feature; ticked off as the new app lands each. |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Minimum dev setup. Path A (SigMonD-canonical) and Path B (frontend-only / no-SDR via sig_gen). Pinned versions and update workflow. |
+| [`docs/UPSTREAM.md`](docs/UPSTREAM.md) | Parity checklist against `wa2n-code/ka9q-web` (the upstream we're replacing). One row per WS command, server frame, UI behavior, and op feature; ticked off as the new app lands each. Also holds the project-by-project pin table. |
 | [`docs/overlay-bugs.md`](docs/overlay-bugs.md) | Short historical record of legacy-overlay bugs and how the rebuild closes them. |
 | [`legacy/OVERLAY-INJECTION.md`](legacy/OVERLAY-INJECTION.md), [`legacy/TEST-MATRIX.md`](legacy/TEST-MATRIX.md) | Archived reference for the nginx-injection architecture and the 39-test cross-browser matrix from the legacy stack. |
 | [`config/`](config/) | `radiod` configuration (`radiod@rx888-web.conf`). Shared with both legacy and new builds. |
-| `ka9q-radio/` | Submodule, tracking upstream `main`. |
-| `server/` *(coming Phase 1)* | New FastAPI app that bridges the browser to `radiod` via `ka9q-python`. |
+| `server/` *(coming Phase 1)* | New FastAPI app that bridges the browser to `radiod` via `ka9q-python`. Managed with `uv`. |
 | `web/` *(coming Phase 1)* | Plain-JS frontend, promoted from the palomar overlay. |
 | [`legacy/`](legacy/) | The previous ka9q-web C server, the original `radio.html` / `radio.js`, the Flask admin dashboard, and the systemd units that run them. Preserved so existing deployments keep working during the cutover. |
 
@@ -38,12 +38,14 @@ were `git mv`'d so history follows them.
 - Design and ops notes consolidated into `docs/MODERNIZATION.md` and
   `docs/UPSTREAM.md`; the historical overlay test matrix and
   injection-architecture doc moved under `legacy/` for reference.
-- `legacy/Makefile` was patched in two places so the legacy build still
-  works from inside the `legacy/` directory: `KA9Q_RADIO_DIR` now points
-  at `../ka9q-radio/src`, and the `install-config` target reads from
-  `../config/`.
-- `.gitmodules` now tracks ka9q-radio `main` so future
-  `git submodule update --remote ka9q-radio` pulls upstream changes.
+- `legacy/Makefile` was patched so the legacy build still works from
+  inside `legacy/`. As of Phase 0.5 the `ka9q-radio` git submodule has
+  been dropped; the Makefile now expects `KA9Q_RADIO_DIR` to point at
+  any external ka9q-radio checkout (the one SigMonD installs is fine).
+- Phase 0.5 added [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md), adopted
+  [SigMonD](https://github.com/mijahauan/sigmond) as the canonical
+  install path, and switched the (forthcoming) `server/` Python
+  package to `uv` for dependency management.
 
 ## Decisions locked in for the rebuild
 
@@ -62,12 +64,17 @@ detail and the open risks list.
 ## Building the legacy stack
 
 If you need to keep an existing deployment working during the cutover,
-the C server and the JS overlay still build from `legacy/`:
+the C server and the JS overlay still build from `legacy/`. As of
+Phase 0.5 ka9q-radio is no longer a git submodule, so point
+`KA9Q_RADIO_DIR` at an external checkout:
 
 ```bash
-git submodule update --init   # pull ka9q-radio sources
+# Either let SigMonD handle ka9q-radio install, or clone it manually:
+git clone https://github.com/ka9q/ka9q-radio.git ~/ka9q-radio
+make -C ~/ka9q-radio                  # build the .o files we link against
+
 cd legacy
-make ka9q-web-dev             # dev build, serves html/ from CWD on :8082
+make ka9q-web-dev KA9Q_RADIO_DIR=~/ka9q-radio/src
 ```
 
 The systemd units in `legacy/` reference absolute install paths
@@ -79,9 +86,10 @@ them as you would have before.
 
 - [Phil Karn KA9Q — ka9q-radio](https://github.com/ka9q/ka9q-radio)
 - [mijahauan — ka9q-python](https://github.com/mijahauan/ka9q-python)
+- [mijahauan — SigMonD](https://github.com/mijahauan/sigmond)
 - [John Melton G0ORX — ka9q-radio fork](https://github.com/g0orx/ka9q-radio)
 - [Scott Newell — ka9q-web (upstream)](https://github.com/scottnewell/ka9q-web)
-- [Onion web framework](https://github.com/davidmoreno/onion)
+- [Onion web framework](https://github.com/davidmoreno/onion) *(legacy only)*
 
 ## Copyright and License
 

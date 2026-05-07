@@ -8,12 +8,16 @@ and the upstream C `ka9q-web` we're replacing.
 | Project | Role | Pinned at | Date |
 |---|---|---|---|
 | [`wa2n-code/ka9q-web`](https://github.com/wa2n-code/ka9q-web) | Feature parity reference (the C/JS stack we're replacing) | `88b28ee9` | 2026-03-25 |
-| [`mijahauan/ka9q-python`](https://github.com/mijahauan/ka9q-python) | Runtime dependency (`server/pyproject.toml`) | **v3.12.0** ([`db2aba9`](https://github.com/mijahauan/ka9q-python/commit/db2aba92bb444ea39872a0313e231bf9977d94fd)) | 2026-05-07 |
-| [`ka9q/ka9q-radio`](https://github.com/ka9q/ka9q-radio) | Submodule, tracking `main` | (floating) | — |
+| [`mijahauan/ka9q-python`](https://github.com/mijahauan/ka9q-python) | Runtime dependency (`server/pyproject.toml`, `uv.lock`) | **v3.12.0** ([`db2aba9`](https://github.com/mijahauan/ka9q-python/commit/db2aba92bb444ea39872a0313e231bf9977d94fd)) | 2026-05-07 |
+| [`mijahauan/sigmond`](https://github.com/mijahauan/sigmond) | Canonical installer for `radiod`; manages systemd + pins ka9q-radio | (whatever SigMonD ships) | — |
+| [`ka9q/ka9q-radio`](https://github.com/ka9q/ka9q-radio) | Pin **inherited from SigMonD** (Path A) or local checkout (Path B) | — | — |
+| Cross-reference: ka9q-radio commit ka9q-python is tested against | from `ka9q.compat.KA9Q_RADIO_COMMIT` | [`5498aefd`](https://github.com/ka9q/ka9q-radio/commit/5498aefd6fd4be7d4ff2f5e33c9b310ecd3b8574) | 2026-05-07 |
 
 Re-fetch monthly during the transition. When you bump a pin, add a row
 under "Pin history" at the bottom and update any new features into the
-tables.
+tables. After any ka9q-radio bump (via SigMonD), cross-check that the
+new pin satisfies the ka9q-python `KA9Q_RADIO_COMMIT` reference; if it
+diverges materially, file an issue.
 
 ---
 
@@ -106,3 +110,4 @@ gating any phase; pull into a phase only when explicitly prioritized.
 |---|---|---|---|
 | 2026-05-07 | wa2n-code/ka9q-web | `88b28ee9` | Initial reference pin alongside Phase 0. |
 | 2026-05-07 | mijahauan/ka9q-python | v3.12.0 (`db2aba9`) | Adds `SpectrumStatus.bin_data` / `bin_byte_data` / `bin_power_db` and the `SpectrumStream` class — resolves R1 (the gating ka9q-python question for Phase 2). |
+| 2026-05-07 | mijahauan/sigmond | (initial adoption) | Phase 0.5: SigMonD becomes the canonical install path; ka9q-radio submodule dropped. ka9q-python's `KA9Q_RADIO_COMMIT` recorded as `5498aefd` for cross-reference. |

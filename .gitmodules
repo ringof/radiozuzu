@@ -1,5 +1,0 @@
-[submodule "ka9q-radio"]
-	path = ka9q-radio
-	url = https://github.com/ka9q/ka9q-radio.git
-	branch = main
-	update = merge

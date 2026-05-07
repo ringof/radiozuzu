@@ -59,12 +59,16 @@ radiozuzu/
   nginx/radiozuzu.conf       # no more sub_filter injection
   docs/
     MODERNIZATION.md         # this file
-    UPSTREAM.md              # parity checklist
+    UPSTREAM.md              # parity checklist + version pins
+    DEVELOPMENT.md           # dev setup (SigMonD-canonical + sig_gen escape hatch)
     overlay-bugs.md          # historical bug record (legacy overlay)
-    INSTALL.md, DEVELOPMENT.md, PROTOCOL.md  (added in later phases)
+    INSTALL.md, PROTOCOL.md  (added in later phases)
   legacy/                    # archived: ka9q-web.c, html/, admin/, services
-  ka9q-radio/                # submodule, tracking upstream main
   README.md  CHANGELOG.md
+
+# ka9q-radio is no longer a git submodule. SigMonD installs and
+# version-pins it on the host (Path A in DEVELOPMENT.md); developers
+# without SigMonD bring their own checkout (Path B).
 ```
 
 ## Phases
@@ -86,10 +90,34 @@ radiozuzu/
 **Acceptance:** `git log --follow` preserves history on moved files;
 legacy build still works via `cd legacy && make ka9q-web-dev`.
 
+### Phase 0.5 — Development setup
+
+- Adopt [SigMonD](https://github.com/mijahauan/sigmond) as the canonical
+  install path for ka9q-radio (`radiod` install, systemd lifecycle,
+  ka9q-radio commit pinning). radiozuzu ships as a SigMonD client.
+- Drop the ka9q-radio git submodule from the repo root. The legacy build
+  in `legacy/` continues to work — `legacy/Makefile` now documents how
+  to point `KA9Q_RADIO_DIR` at any external ka9q-radio checkout
+  (including the one SigMonD installs).
+- Adopt [`uv`](https://docs.astral.sh/uv/) for Python dep management;
+  `uv.lock` lives next to `server/pyproject.toml`.
+- Document the dev setup in `docs/DEVELOPMENT.md`: Path A
+  (SigMonD-canonical, real RF or any ka9q-radio frontend) and Path B
+  (frontend-only / no-SDR via ka9q-radio's `sig_gen` synthetic
+  frontend).
+- Cross-record ka9q-python's `KA9Q_RADIO_COMMIT` reference (currently
+  `5498aefd`) in `UPSTREAM.md` so SigMonD's pin can be cross-checked.
+
+**Acceptance:** `docs/DEVELOPMENT.md` lets a fresh contributor stand up
+a working dev environment from scratch in either path; the ka9q-radio
+submodule is gone from `main`; `legacy/` still builds with an external
+ka9q-radio checkout.
+
 ### Phase 1 — FastAPI skeleton
 
-- `server/pyproject.toml`: `fastapi`, `uvicorn[standard]`, `ka9q-python`,
-  `pydantic`, `jinja2`, Python ≥3.11.
+- `server/pyproject.toml` (managed via `uv`): `fastapi`,
+  `uvicorn[standard]`, `ka9q-python >= 3.12.0`, `pydantic`, `jinja2`,
+  Python ≥3.11. Lockfile committed as `server/uv.lock`.
 - `main.py`: app, `/healthz`, static mount of `web/`, lifespan opens a
   `RadiodControl` **registry** (multi-radiod), `/ws` placeholder.
 - `models.py`: pydantic schemas for `Tune`, `SetMode`, `SetCenter`,
