@@ -59,8 +59,9 @@ radiozuzu/
   nginx/radiozuzu.conf       # no more sub_filter injection
   docs/
     MODERNIZATION.md         # this file
-    INSTALL.md, DEVELOPMENT.md, PROTOCOL.md
-    overlay-improvements.md, touch-gestures-plan.md  (carried over)
+    UPSTREAM.md              # parity checklist
+    overlay-bugs.md          # historical bug record (legacy overlay)
+    INSTALL.md, DEVELOPMENT.md, PROTOCOL.md  (added in later phases)
   legacy/                    # archived: ka9q-web.c, html/, admin/, services
   ka9q-radio/                # submodule, tracking upstream main
   README.md  CHANGELOG.md
@@ -73,8 +74,10 @@ radiozuzu/
 - `git mv` legacy assets (`ka9q-web.c`, `Makefile`, `html/`, `admin/`,
   `ka9q-web*.service`, `update-w1euj.sh`, `radiod.commit`, `latest.png`)
   into `legacy/`.
-- Move docs (`overlay*.md`, `touch-gestures-plan.md`,
-  `local-dev-test.md`, `issue.md`) into `docs/`.
+- Consolidate design and ops notes into `docs/MODERNIZATION.md` and
+  `docs/UPSTREAM.md`; move historical overlay docs (`OVERLAY-INJECTION.md`,
+  `TEST-MATRIX.md`) under `legacy/`; keep `docs/overlay-bugs.md` as a
+  short historical record.
 - Fix `legacy/Makefile` paths so the legacy build still works from
   `legacy/`.
 - Update `.gitmodules` to track ka9q-radio `main`.
@@ -142,7 +145,8 @@ configured radiods' active SSRCs.
   semantics in JSON form.
 - Fold `admin/admin.py` into FastAPI as `/admin` routes; tracking comes
   from in-process WS session state. Keep SQLite for history only.
-- Closes `issue.md` (real client IP) — read `CF-Connecting-IP` /
+- Closes the real-client-IP gap (the legacy C server reports 127.0.0.1
+  behind Cloudflare Tunnel) — read `CF-Connecting-IP` /
   `X-Forwarded-For` directly from `request.headers` with a trust list.
 
 **Acceptance:** every overlay button works; admin dashboard works;

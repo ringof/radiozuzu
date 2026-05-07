@@ -75,11 +75,27 @@ equivalent and to the `RadiodControl` call it routes through.
 | Filter edge numeric entry | UI in `app.js` (paired with the existing drag handles) |
 | Touch gestures (single-finger pan, tap-to-tune, pinch zoom, two-finger slide) | rewritten input layer in `app.js` |
 
+## Backlog (low-priority, post-parity)
+
+Carried over from the historical overlay-improvements roadmap. Not
+gating any phase; pull into a phase only when explicitly prioritized.
+
+| Feature | Notes |
+|---|---|
+| Panner (L/R audio balance) | Per-listener stereo balance control |
+| FFT averaging controls (client + server) | Expose more knobs than the current single `SPECTRUM_AVG` slider |
+| Max/min hold spectrum-trace toggles | Persistent peak/floor traces |
+| Decay rate control | For waterfall / spectrum smoothing |
+| Auto mode-by-frequency toggle | Pick demod automatically based on band plan |
+| Cursor mode | Free-floating frequency cursor independent of tune |
+| Band edge markers | Visual lines on amateur band edges |
+| WWV solar data display | Live A/K/SFI panel |
+
 ## Operational parity
 
 | Upstream feature | New form | Status |
 |---|---|---|
-| Real client IP behind Cloudflare Tunnel (currently shows 127.0.0.1) | Read `CF-Connecting-IP` / `X-Forwarded-For` from `request.headers`, trust list configurable. Closes `docs/issue.md`. | ☐ |
+| Real client IP behind Cloudflare Tunnel (currently shows 127.0.0.1) | Read `CF-Connecting-IP` / `X-Forwarded-For` from `request.headers`, trust list configurable. | ☐ |
 | Watchdog for stalled multicast / Status_fd / Input_fd / spectrum stream | `ManagedStream` `on_stream_dropped` / `on_stream_restored` + `restore_interval_sec` | ☐ |
 | Spectrum-restart exponential backoff | Same as above | ☐ |
 | Per-IP and global connection limits (nginx `limit_conn`) | unchanged — keep the nginx `limit_conn` zones | ☐ |

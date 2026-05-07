@@ -19,7 +19,8 @@
 |---|---|
 | [`docs/MODERNIZATION.md`](docs/MODERNIZATION.md) | The transition plan — server stack, frontend, audio path, ka9q-python tasks, risks. |
 | [`docs/UPSTREAM.md`](docs/UPSTREAM.md) | Parity checklist against `wa2n-code/ka9q-web` (the upstream we're replacing). One row per WS command, server frame, UI behavior, and op feature; ticked off as the new app lands each. |
-| [`docs/`](docs/) | Design, ops, and historical notes (overlay improvements, touch gestures, dev test guide, open issues). |
+| [`docs/overlay-bugs.md`](docs/overlay-bugs.md) | Short historical record of legacy-overlay bugs and how the rebuild closes them. |
+| [`legacy/OVERLAY-INJECTION.md`](legacy/OVERLAY-INJECTION.md), [`legacy/TEST-MATRIX.md`](legacy/TEST-MATRIX.md) | Archived reference for the nginx-injection architecture and the 39-test cross-browser matrix from the legacy stack. |
 | [`config/`](config/) | `radiod` configuration (`radiod@rx888-web.conf`). Shared with both legacy and new builds. |
 | `ka9q-radio/` | Submodule, tracking upstream `main`. |
 | `server/` *(coming Phase 1)* | New FastAPI app that bridges the browser to `radiod` via `ka9q-python`. |
@@ -34,8 +35,9 @@ were `git mv`'d so history follows them.
 - `ka9q-web.c`, the legacy `Makefile`, the `html/` and `admin/` trees,
   the `ka9q-web*.service` units, `update-w1euj.sh`, `radiod.commit`, and
   `latest.png` moved into `legacy/`.
-- Design / ops docs (`overlay*.md`, `touch-gestures-plan.md`,
-  `local-dev-test.md`, `issue.md`) moved into `docs/`.
+- Design and ops notes consolidated into `docs/MODERNIZATION.md` and
+  `docs/UPSTREAM.md`; the historical overlay test matrix and
+  injection-architecture doc moved under `legacy/` for reference.
 - `legacy/Makefile` was patched in two places so the legacy build still
   works from inside the `legacy/` directory: `KA9Q_RADIO_DIR` now points
   at `../ka9q-radio/src`, and the `install-config` target reads from

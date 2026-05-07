@@ -1,74 +1,52 @@
 # Overlay Bugs
 
-Bugs found during cross-browser testing of `palomar-overlay.user.js`.
-Reference test cases from `overlay-test-matrix.md`.
+Bugs found during cross-browser testing of the legacy palomar overlay
+(`legacy/html/palomar-overlay.user.js`).
 
-## Open
+> **Status:** kept for historical reference during the transition.
+> See `docs/MODERNIZATION.md` for how each open item is resolved by
+> the rebuild.
+
+## Open against the legacy overlay
 
 ### Occasional frequency stutter on arrow button clicks
 
 **Symptom:** Clicking `< > << >>` buttons, the gold frequency display and
-spectrum cursor occasionally flicker back to the old frequency for one frame
-before correcting. Happens ~1 in 10 clicks. Waterfall clicks have the same
-underlying issue but it's less frequent and harder to notice.
+spectrum cursor occasionally flicker back to the old frequency for one
+frame before correcting. ~1 in 10 clicks.
 
-**Root cause:** `radio.js` overwrites `window.frequencyHz` with the server's
-stale value every WS frame (line 716), before the server has processed the
-overlay's `F:` command. This causes:
-1. The overlay's loop to revert `tuneKhz` → gold number bounces
-2. `spectrum.setFrequency(frequencyHz)` (radio.js line 769) → spectrum.js
-   cursor bounces on its canvas → visible through the overlay's `drawImage` copy
-3. `document.getElementById("freq").value` (radio.js line 791) → host page
-   input bounces
+**Root cause:** `radio.js` overwrites `window.frequencyHz` with the
+server's stale value every WS frame, before the server has processed the
+overlay's `F:` command, racing the overlay's own `_rjsTarget` guard.
 
-**What's fixed (aa1ea84, 6b265f8):** The overlay loop now tracks a
-`_rjsTarget` after `rjsTune()` and suppresses frequency sync until the server
-confirms (within 0.5 kHz) or 300ms elapses. A 50ms minimum window prevents
-premature confirmation from reading our own write. This eliminated most of the
-gold-number stutter.
+**Mitigated** by the overlay's `_rjsTarget` tracking + 50ms minimum
+window (commits aa1ea84, 6b265f8) — eliminates most of the gold-number
+stutter, but the underlying race remains because radio.js writes
+`spectrum.frequency` directly.
 
+**Resolved by Phase 4 of the rebuild.** The new app makes the FastAPI
+server the single authority over tuning state, eliminating the
+client-vs-radio.js race entirely. No client-side guard needed.
 
-**What's NOT fixed:**
-- The spectrum.js cursor still bounces because radio.js writes
-  `spectrum.frequency` directly — outside overlay control.
-- Rare cases where the 50ms minimum isn't long enough (WS frame arrives
-  after 50ms but before server confirms). Bumping to 80-100ms would catch
-  more but adds imperceptible latency.
-- The only complete fix would be to prevent radio.js from overwriting
-  `frequencyHz` / `spectrum.frequency` while a tune is in flight. This
-  would require changes to radio.js itself (e.g., a `pendingTune` guard
-  similar to the overlay's `_rjsTarget`).
+### Fullscreen support incomplete (Phase 2)
 
-### Fullscreen support incomplete
+**Symptom:** Pressing `f` makes the screen go black because spectrum.js
+fullscreens its own `#waterfall` canvas, not `#p-overlay`.
 
-**Symptom:** Pressing `f` makes the screen go black. spectrum.js throws
-`"Not in fullscreen mode"` on exit attempt.
+**Phase 1 (already merged in the legacy overlay):** intercept `f`,
+fullscreen `#p-overlay` instead.
 
-**Root cause:** spectrum.js `toggleFullscreen()` calls `requestFullscreen()`
-on its own `#waterfall` canvas. That canvas goes fullscreen but the overlay
-(`#p-overlay`, a sibling, not a child) isn't visible — so the screen is black.
+**Phase 2 (TODO, will be picked up in radiozuzu Phase 4):** the
+"fullscreen-only" keyboard shortcuts (space, c, arrows, s/w, +/-, m, z,
+i/o, a) are gated by `Spectrum.prototype.onKeypress` on
+`this.fullscreen === true`, which stays false because we fullscreen
+`#p-overlay`. In the rebuild we own the keydown handler and re-implement
+the shortcuts directly — no need to spoof spectrum.fullscreen.
 
-**Phase 1 (done):** Intercept `f` in the overlay, call
-`requestFullscreen()` / `exitFullscreen()` on `#p-overlay` instead.
-`requestFullscreen()` requires a direct user gesture (click/keypress) — it
-cannot be called from console, timers, or promises. We confirmed that
-fullscreening `#p-overlay` renders correctly.
+## History
 
-**Phase 2 (TODO):** The help popup lists "fullscreen only" keyboard shortcuts
-(space, c, arrows, s/w, +/-, m, z, i/o, a). These are handled by
-`Spectrum.prototype.onKeypress` which gates on `this.fullscreen === true`.
-Since we fullscreen `#p-overlay` (not spectrum's canvas), `spectrum.fullscreen`
-stays false and those shortcuts won't fire. Options:
-- Set `spectrum.fullscreen = true` when entering overlay fullscreen
-- Reimplement the shortcuts in the overlay's own keydown handler
-- Some combination — audit which shortcuts already work and fill gaps
-
-## Fixed
-
-| Bug | Test # | Browser | Fix | Date |
-|-----|--------|---------|-----|------|
-| Passband drag handles non-functional (z-index, disabled button, TDZ crash, no per-frame update) | 28 | All | d744991, 459e505, bd07558, 97f8cb6 | 2026-04-25 |
-| ~1s tune/mode latency (sync-check revert) | 37 | All | a316210 — direct WS sends + frequencyHz sync | 2026-04-25 |
-| AudioContext suspended on autostart | 10 | All | 37c42bc — defer to first user gesture | 2026-04-25 |
-| Mode button shows wrong mode at startup | 8 | All | e0426e5 — sync mode in per-frame loop | 2026-04-25 |
-| Frequency scale bar click-to-tune causes accidental retunes during passband adjust | — | All | d226ca1 — block mousedown/touchstart on p-sc in capture phase | 2026-04-25 |
+A handful of overlay bugs were fixed in 2026-04 (passband drag handles,
+~1 s tune/mode latency, AudioContext autostart, mode-button startup
+sync, scale-bar accidental-tune). Commit hashes are in the legacy
+overlay's git history; not reproduced here because the C+overlay
+codepath is being retired.
